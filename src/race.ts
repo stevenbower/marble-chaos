@@ -3,7 +3,7 @@ import { RACE_PER_ENTRANT, RACE_RADIUS, levelRng } from './model';
 import { DT, LIVE, OUT, SAFE, Sim, type Fx, type Marble } from './sim';
 
 /** Seconds without a marble finishing or being lost before a stage is called: whatever is left is stuck. */
-const STALL = 12;
+const STALL = 8;
 
 export interface Placing {
   e: number;
@@ -18,7 +18,9 @@ export class Race {
   results: Placing[] = [];
   fx: Fx[] = [];
   sim!: Sim;
-  stageIdx = 0;
+  stageIdx = -1;
+  private bag: number[] = []; // stages not yet played this time through
+  private played = false;
   round = 0;
   phase: 'run' | 'pause' | 'done' = 'run';
   clock = 0;
@@ -37,7 +39,21 @@ export class Race {
   constructor(public p: Project, start: number, public single: boolean) {
     this.counts = p.entrants.map(() => Math.max(1, Math.round(p.perEntrant ?? RACE_PER_ENTRANT)));
     this.rng = levelRng(p, 0);
-    this.begin(start);
+    this.begin(single ? start : this.draw()!);
+  }
+
+  /** The next stage, drawn at random: every stage comes up once before any repeats. Undefined once they run out. */
+  private draw() {
+    if (!this.bag.length) {
+      if (this.played && !this.p.loop) return undefined;
+      this.played = true;
+      this.bag = this.p.stages.map((_, i) => i).filter((i) => i !== this.stageIdx || this.p.stages.length === 1);
+      for (let i = this.bag.length - 1; i > 0; i--) {
+        const j = Math.floor(this.rng() * (i + 1));
+        [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
+      }
+    }
+    return this.bag.pop();
   }
 
   get stage() {
@@ -142,11 +158,8 @@ export class Race {
 
   private next() {
     if (this.single || this.entrantsIn() <= 1) return this.finish();
-    let n = this.stageIdx + 1;
-    if (n >= this.p.stages.length) {
-      if (!this.p.loop) return this.finish();
-      n = 0;
-    }
+    const n = this.draw();
+    if (n === undefined) return this.finish();
     this.begin(n);
   }
 

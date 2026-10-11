@@ -58,14 +58,36 @@ const pathStage = (name: string, scene: string, skin: string, y0: number, spawn:
     { spawn, h: y0 + depth, timeLimit: 150 },
   );
 
-type RaceOpts = { timeLimit?: number; gravity?: number; floor?: boolean };
-/** A marble race stage: `spawn` is [x, y, w, h]; unless `floor` is off the whole floor is the finish line. */
-const raceStage = (name: string, scene: string, skin: string, h: number, spawn: number[], shapes: Shape[], o: RaceOpts = {}) =>
-  mkStage(
+type RaceOpts = { timeLimit?: number; gravity?: number; floor?: boolean; hopper?: boolean };
+const HOPPER = 130; // how far a hopper deck pushes the rest of a stage down
+/**
+ * A deck of six hoppers across the top of a stage, each emptying through a trapdoor that opens and shuts to its own
+ * beat. Without it a full-width crowd simply falls through a stage in a few seconds; with it the marbles come down
+ * in waves.
+ */
+function hopperDeck(): Shape[] {
+  const out: Shape[] = [], cell = W / 6, gap = 90;
+  for (let i = 0; i < 6; i++) {
+    const x0 = i * cell, cx = x0 + cell / 2;
+    out.push(ramp(x0, 168, cx - gap / 2, 200), ramp(x0 + cell, 168, cx + gap / 2, 200));
+    out.push(mkShape('rect', 'solid', cx, 204, gap + 16, 12, { gate: 2.2 + ((i * 5) % 6) * 0.25, duty: 0.7, skin: 'gold' }));
+    if (i) out.push(mkShape('tri', 'solid', x0, 158, 34, 26)); // a cap, so nothing balances on the ridge between two hoppers
+  }
+  return out;
+}
+
+/**
+ * A marble race stage: `spawn` is [x, y, w, h]; unless `floor` is off the whole floor is the finish line. `hopper`
+ * adds a hopper deck under the spawn and moves everything else down to make room.
+ */
+const raceStage = (name: string, scene: string, skin: string, h: number, spawn: number[], shapes: Shape[], o: RaceOpts = {}) => {
+  const d = o.hopper ? HOPPER : 0, body = [...shapes, ...(o.floor === false ? [] : [mkShape('rect', 'finish', W / 2, h - 14, W, 28)])];
+  return mkStage(
     name,
-    [mkShape('rect', 'spawn', spawn[0], spawn[1], spawn[2], spawn[3]), ...shapes, ...(o.floor === false ? [] : [mkShape('rect', 'finish', W / 2, h - 14, W, 28)])],
-    { h, timeLimit: o.timeLimit ?? 180, gravity: o.gravity ?? 1, bgTex: scene, skin },
+    [mkShape('rect', 'spawn', spawn[0], spawn[1], spawn[2], spawn[3]), ...(o.hopper ? hopperDeck() : []), ...body.map((b) => ({ ...b, y: b.y + d }))],
+    { h: h + d, timeLimit: o.timeLimit ?? 180, gravity: o.gravity ?? 1, bgTex: scene, skin },
   );
+};
 const TOP = [W / 2, 80, 1200, 120];
 
 /** A plank from one point to another. */
@@ -391,7 +413,7 @@ export const TEMPLATES: Record<string, () => Stage> = {
     for (const x of [150, 640, 1130]) {
       s.push(hazard('lava', 'rect', x, 1086, 190, 28), mkShape('tri', 'solid', x, 960, 150, 80)); // a pool, and a roof that sheds most marbles clear of it
     }
-    return raceStage('Lava Lair', 'scene-lavacave', 'stone', 1100, TOP, s);
+    return raceStage('Lava Lair', 'scene-lavacave', 'stone', 1100, TOP, s, { hopper: true });
   },
 
   // belts with gaps over shark-infested water
@@ -410,7 +432,7 @@ export const TEMPLATES: Record<string, () => Stage> = {
       s.push(hazard('void', 'circle', x, y, 60, 60, { power: 26 }));
       s.push(mkShape('arc', 'solid', x, y, 230, 230, { t: 12, sweep: 110, spin: i % 2 ? -70 : 70, skin: 'gold' })); // a shield that swings round it
     });
-    return raceStage('Black Hole Alley', 'scene-nebula', 'moon', 1000, TOP, s, { gravity: 0.45 });
+    return raceStage('Black Hole Alley', 'scene-nebula', 'moon', 1000, TOP, s, { gravity: 0.45, hopper: true });
   },
 
   // everything funnels into a tower with three lightning gates that flash on and off
@@ -455,7 +477,7 @@ export const TEMPLATES: Record<string, () => Stage> = {
     s.push(mkShape('rect', 'boost', 45, 900, 70, 130, { rot: 16, power: 950 }), mkShape('rect', 'boost', 1235, 900, 70, 130, { rot: -16, power: 950 }));
     s.push(mkShape('rect', 'solid', 88, 910, 12, 150), mkShape('rect', 'solid', 1192, 910, 12, 150)); // lane guides
     s.push(hazard('zap', 'rect', 640, 1086, 200, 28), mkShape('rect', 'finish', 270, 1086, 540, 28), mkShape('rect', 'finish', 1010, 1086, 540, 28));
-    return raceStage('Pinball Palace', 'scene-arcade', 'neon', 1100, TOP, s, { floor: false });
+    return raceStage('Pinball Palace', 'scene-arcade', 'neon', 1100, TOP, s, { floor: false, hopper: true });
   },
 
   // two drawbridges over lava, a swinging axe, then a fireball rolling up and down the last corridor
@@ -481,14 +503,15 @@ export const TEMPLATES: Record<string, () => Stage> = {
     s.push(mkShape('rect', 'boost', 896, 380, 120, 130, { rot: 180, power: 600 }), ...pegs(640, 840, 960, 112, 30, { bounce: 1 }), ...pegs(780, 896, 900, 100, 30, { bounce: 1 }));
     s.push(mkShape('rect', 'slow', 1152, 620, 220, 180, { power: 34 }), ...pegs(380, 1100, 1210, 110, 30, { bounce: 1 }));
     s.push(...pegs(960, 90, 1200, 148, 34, { bounce: 1 }));
-    return raceStage('Swamp Stomp', 'scene-swamp', 'bamboo', 1100, TOP, s);
+    return raceStage('Swamp Stomp', 'scene-swamp', 'bamboo', 1100, TOP, s, { hopper: true });
   },
 
   // a ramp, a launch pad and a long jump over a lake of lava
   'Rocket Launch': () =>
-    raceStage('Rocket Launch', 'scene-launchpad', 'steel', 920, [190, 70, 320, 100], [
+    raceStage('Rocket Launch', 'scene-launchpad', 'steel', 920, [150, 70, 260, 100], [
       ramp(0, 250, 350, 430), ramp(350, 430, 470, 395),
-      mkShape('rect', 'boost', 400, 385, 110, 60, { rot: 58, power: 640 }),
+      mkShape('rect', 'solid', 300, 330, 14, 170, { gate: 2.6, duty: 0.72, skin: 'gold' }), // countdown gate: holds the queue back and lets it go in bursts
+      mkShape('rect', 'boost', 385, 398, 150, 64, { rot: 58, power: 640 }),
       mkShape('rect', 'solid', 478, 660, 16, 500),
       mkShape('cross', 'solid', 700, 210, 150, 150, { t: 14, arms: 3, spin: 110 }),
       mkShape('circle', 'solid', 880, 330, 44, 44, { bounce: 0.9, mx: 60, mt: 3 }),
@@ -500,10 +523,10 @@ export const TEMPLATES: Record<string, () => Stage> = {
   'Honey Hive': () => {
     const s: Shape[] = [], HONEY = '#f5a623';
     for (let row = 0; row < 6; row++)
-      for (let x = row % 2 ? 160 : 80; x <= 1210; x += 160) s.push(mkShape('star', 'solid', x, 260 + row * 112, 64, 64, { arms: 6, rot: 30, skin: 'gold' }));
+      for (let x = row % 2 ? 160 : 80; x <= 1210; x += 160) s.push(mkShape('star', 'solid', x, 260 + row * 112, 64, 64, { arms: 6, spin: (row + x / 160) % 2 < 1 ? 40 : -40, skin: 'gold' })); // turning, so nothing can sit in the notches
     for (const [x, y] of [[240, 316], [720, 316], [1120, 428], [400, 540], [880, 540], [160, 652], [640, 764], [1040, 764]]) s.push(mkShape('circle', 'slow', x, y, 120, 120, { power: 36, color: HONEY }));
     [[400, 372], [900, 600], [560, 830]].forEach(([x, y], i) => s.push(hazard('zap', 'circle', x, y, 30, 30, { mx: 260, mt: 5 + i * 1.5 })));
-    return raceStage('Honey Hive', 'scene-hive', 'gold', 1100, TOP, s);
+    return raceStage('Honey Hive', 'scene-hive', 'gold', 1100, TOP, s, { hopper: true });
   },
 
   // two belts, a bucket lift, then a sorting belt whose trapdoor drops rejects into a vat of acid
@@ -541,7 +564,7 @@ export const TEMPLATES: Record<string, () => Stage> = {
       hammer(420, 640, 170, 55, 2.6), hammer(860, 640, 170, 55, 3.2),
       mkShape('circle', 'solid', 640, 960, 110, 110, { mx: 430, mt: 6 }),
       hazard('lava', 'rect', 640, 1186, 220, 28), mkShape('tri', 'solid', 640, 1090, 150, 70),
-    ]),
+    ], { hopper: true }),
 
   // puffing clouds, propellers, cannons on the walls, and three decks to land on with the sea in between
   'Sky Pirates': () => {
@@ -552,7 +575,7 @@ export const TEMPLATES: Record<string, () => Stage> = {
     s.push(mkShape('rect', 'fan', 440, 800, 90, 260, { power: 24 }), mkShape('rect', 'fan', 840, 800, 90, 260, { power: 24 }));
     for (const x of [240, 640, 1040]) s.push(mkShape('rect', 'finish', x, 925, 310, 24));
     s.push(hazard('water', 'rect', 640, 986, 1280, 28));
-    return raceStage('Sky Pirates', 'scene-airship', 'wood', 1000, TOP, s, { floor: false });
+    return raceStage('Sky Pirates', 'scene-airship', 'wood', 1000, TOP, s, { floor: false, hopper: true });
   },
 
   Survival: () =>
