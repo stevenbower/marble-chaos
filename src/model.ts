@@ -67,9 +67,13 @@ export interface Project {
   mode?: 'race' | 'slots'; // slots: letters compete for marbles, the lowest-scoring letter goes out each round
   slotLabels?: string; // one slot per character, or comma-separated names
   slotBalls?: number; // marbles dropped per round in slots mode
+  slotRadius?: number; // marble radius in slots mode, where a crowd of small marbles reads better
   seed: number;
   seedFixed?: boolean; // use `seed` so runs repeat exactly; otherwise every level draws a fresh seed from the clock
 }
+
+/** Letter slots defaults: a big crowd of small marbles. */
+export const SLOT_BALLS = 2000, SLOT_RADIUS = 7;
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 

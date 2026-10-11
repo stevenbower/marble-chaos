@@ -1,5 +1,5 @@
 import type { Project } from './model';
-import { levelRng } from './model';
+import { SLOT_BALLS, SLOT_RADIUS, levelRng } from './model';
 import { DT, OUT, SAFE, Sim, type Fx } from './sim';
 
 export const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -51,9 +51,9 @@ export class SlotGame {
     this.loser = -1;
     this.lost = 0;
     this.lastScore = 0;
-    const n = Math.max(1, Math.min(2000, Math.round(this.p.slotBalls ?? 200)));
+    const n = Math.max(1, Math.min(5000, Math.round(this.p.slotBalls ?? SLOT_BALLS)));
     const balls = Array.from({ length: n }, (_, k) => k % this.p.entrants.length);
-    this.sim = new Sim(this.stage, this.p.radius, this.p.marbleBounce, balls, this.rng, this.labels.length);
+    this.sim = new Sim(this.stage, Math.max(3, Math.min(60, this.p.slotRadius ?? SLOT_RADIUS)), this.p.marbleBounce, balls, this.rng, this.labels.length);
     this.phase = 'run';
     this.dirty = true;
   }

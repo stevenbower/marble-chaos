@@ -1,7 +1,7 @@
 import './style.css';
 import { COUNTRIES, countryName, flagUrl } from './flags';
 import { D2R, boxH, hit, isRound, toLocal } from './geom';
-import { BACKDROPS, MARBLES, PALETTE, SKINS, mkShape, uid, type Entrant, type Kind, type Project, type Role, type Shape, type Stage } from './model';
+import { BACKDROPS, MARBLES, PALETTE, SKINS, SLOT_BALLS, SLOT_RADIUS, mkShape, uid, type Entrant, type Kind, type Project, type Role, type Shape, type Stage } from './model';
 import { Race } from './race';
 import { drawHud, drawScene, drawSlotHud, handles, preload, type Cam } from './render';
 import { ALPHABET, SlotGame, parseLabels } from './slots';
@@ -191,14 +191,14 @@ function marblesHtml() {
       ${
         slots
           ? `<label class="wide">Slots (letters, or names split by commas)<input data-t="project" data-k="slotLabels" value="${esc(p.slotLabels ?? ALPHABET)}"></label>
-             ${num('project', 'slotBalls', 'Marbles per round', p.slotBalls ?? 200, 10, 'wide')}
+             ${num('project', 'slotBalls', 'Marbles per round', p.slotBalls ?? SLOT_BALLS, 100)}${num('project', 'slotRadius', 'Marble radius', p.slotRadius ?? SLOT_RADIUS)}
              <button data-act="slot-levels" class="wide">Load all the themed levels</button>`
           : ''
       }
     </div>
     ${slots ? `<p class="hint">Every stage gets a strip of slots along the floor. Each round the slot that catches the fewest marbles is eliminated, until one is left. The entrants below only set what the marbles look like.</p>` : ''}`;
   return `${game}<h4>Marbles</h4><div class="grid">
-      ${slots ? '' : num('project', 'perEntrant', 'Per entrant', p.perEntrant)}${num('project', 'radius', 'Radius', p.radius)}
+      ${slots ? '' : num('project', 'perEntrant', 'Per entrant', p.perEntrant) + num('project', 'radius', 'Radius', p.radius)}
       ${num('project', 'marbleBounce', 'Bounciness', p.marbleBounce, 0.1)}${p.seedFixed ? num('project', 'seed', 'Seed', p.seed) : ''}
       ${check('project', 'seedFixed', 'Fixed seed (every run plays out the same)', !!p.seedFixed)}
       ${slots ? '' : check('project', 'loop', 'Repeat stages until one is left', p.loop)}
@@ -710,7 +710,8 @@ document.addEventListener('change', (e) => {
   }
   project.radius = Math.max(3, Math.min(60, project.radius));
   project.perEntrant = Math.max(1, Math.min(200, Math.round(project.perEntrant)));
-  if (project.slotBalls != null) project.slotBalls = Math.max(1, Math.min(2000, Math.round(project.slotBalls)));
+  if (project.slotBalls != null) project.slotBalls = Math.max(1, Math.min(5000, Math.round(project.slotBalls)));
+  if (project.slotRadius != null) project.slotRadius = Math.max(3, Math.min(60, project.slotRadius));
   const k = el.dataset.k!;
   if (s && el.dataset.t === 'shape' && k === 'skin') s.color = ''; // a flat colour would hide the material just chosen
   commit();
