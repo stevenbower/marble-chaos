@@ -1,6 +1,9 @@
-import type { Project } from './model';
-import { levelRng } from './model';
+import type { Project, Shape } from './model';
+import { RACE_PER_ENTRANT, RACE_RADIUS, levelRng } from './model';
 import { DT, LIVE, OUT, SAFE, Sim, type Fx, type Marble } from './sim';
+
+/** Seconds without a marble finishing or being lost before a stage is called: whatever is left is stuck. */
+const STALL = 12;
 
 export interface Placing {
   e: number;
@@ -21,15 +24,18 @@ export class Race {
   clock = 0;
   quota = 0;
   outs = 0;
+  killed = 0; // of those, lost to a hazard
   safes = 0;
   total = 0;
   dirty = true;
   private pauseLeft = 0;
+  private racing = false; // the stage has a finish line, so it is played right through
+  private lastEvent = -1; // sim time a marble last finished or was lost
   private safeOrder: number[] = [];
   private rng: () => number;
 
   constructor(public p: Project, start: number, public single: boolean) {
-    this.counts = p.entrants.map(() => Math.max(1, Math.round(p.perEntrant)));
+    this.counts = p.entrants.map(() => Math.max(1, Math.round(p.perEntrant ?? RACE_PER_ENTRANT)));
     this.rng = levelRng(p, 0);
     this.begin(start);
   }
@@ -53,9 +59,11 @@ export class Race {
     this.total = ents.length;
     const q = st.elimPct ? Math.max(st.elim > 0 ? 1 : 0, Math.round((this.total * st.elim) / 100)) : Math.round(st.elim);
     this.quota = Math.max(0, Math.min(q, this.total - 1));
-    this.outs = this.safes = 0;
+    this.outs = this.safes = this.killed = 0;
     this.safeOrder = [];
-    this.sim = new Sim(st, this.p.radius, this.p.marbleBounce, ents, this.rng);
+    this.sim = new Sim(st, this.p.radius ?? RACE_RADIUS, this.p.marbleBounce, ents, this.rng);
+    this.racing = this.sim.zones.some((z) => z.role === 'finish');
+    this.lastEvent = -1;
     this.phase = 'run';
     this.dirty = true;
   }
@@ -67,7 +75,11 @@ export class Race {
     if (this.fx.length && this.clock - this.fx[0].at > 1) this.fx.shift();
     if (this.phase === 'run') {
       // Once the safe spots are full, crossing the line no longer saves you.
-      this.sim.step((m, role, zone) => (role === 'finish' && this.safes < this.total - this.quota ? this.safe(m) : this.out(m, !!zone)));
+      this.sim.step((m, role, zone) => {
+        this.lastEvent = this.sim.time;
+        if (role === 'finish' && this.safes < this.total - this.quota) this.safe(m);
+        else this.out(m, zone);
+      });
       this.check();
     } else {
       this.sim.step(() => {});
@@ -82,10 +94,14 @@ export class Race {
     this.dirty = true;
   }
 
-  /** `burn`: it went into an eliminate zone, so it goes up in flames. */
-  private out(m: Marble, burn = false) {
+  /** `zone`: what it went into, which decides how it meets its end. */
+  private out(m: Marble, zone?: Shape) {
     if (this.total - this.outs <= 1) return this.safe(m); // someone has to win
-    if (burn) this.fx.push({ x: m.x, y: m.y, e: m.e, at: this.clock });
+    if (zone?.role === 'kill') this.killed++;
+    if (zone) {
+      const p = this.sim.pose(zone);
+      this.fx.push({ x: m.x, y: m.y, e: m.e, at: this.clock, k: zone.role === 'kill' ? zone.fate : 'late', tx: p.x, ty: p.y });
+    }
     this.sim.settle(m, OUT);
     this.outs++;
     if (--this.counts[m.e] === 0) {
@@ -107,12 +123,16 @@ export class Race {
     const { sim, quota } = this;
     const limit = this.stage.timeLimit;
     if (sim.live > 0) {
-      if (quota > 0 && this.outs >= quota) {
+      // A stage with a finish line is played right through, until every marble has finished or been lost: any
+      // lost to a hazard is out, however many that is, and so is any that crosses the line after the safe spots
+      // have gone. Without a finish line (a survival stage) it stops as soon as enough have gone.
+      const stalled = this.lastEvent >= 0 && sim.time - this.lastEvent > STALL;
+      if (!this.racing && quota > 0 && this.outs >= quota) {
         for (const m of this.stragglers()) this.safe(m, false);
-      } else if (this.safes >= this.total - quota) {
+      } else if (!this.racing && this.safes >= this.total - quota) {
         for (const m of this.stragglers()) this.out(m);
-      } else if (limit > 0 && sim.time >= limit) {
-        const need = quota - this.outs;
+      } else if ((limit > 0 && sim.time >= limit) || stalled) {
+        const need = this.total - quota - this.safes > 0 ? quota - this.outs : Infinity; // no safe spots left: all out
         this.stragglers().forEach((m, i) => (i < need ? this.out(m) : this.safe(m, false)));
       } else return;
     }

@@ -3,7 +3,8 @@
 Design marble-race stages in the browser and run them as elimination tournaments.
 
 - **Marble race**: country flags, colours, designed marbles or your own logos race through the stages; each stage
-  knocks some out until one is left.
+  knocks some out until one is left. Fifteen themed stages with hazards (lava, water, acid, black holes, lightning);
+  each stage is played until every marble has finished or been lost.
 - **Letter slots** (the default): marbles pour into a strip of lettered slots; the letter that catches the fewest is out each round. Levels come up in random order.
 
 ## Develop

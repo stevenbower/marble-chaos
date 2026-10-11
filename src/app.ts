@@ -1,13 +1,13 @@
 import './style.css';
 import { COUNTRIES, countryName, flagUrl } from './flags';
 import { D2R, boxH, hit, isRound, toLocal } from './geom';
-import { BACKDROPS, MARBLES, PALETTE, SKINS, SLOT_BALLS, SLOT_RADIUS, mkShape, uid, type Entrant, type Kind, type Project, type Role, type Shape, type Stage } from './model';
+import { BACKDROPS, FATES, MARBLES, PALETTE, RACE_PER_ENTRANT, RACE_RADIUS, SKINS, SLOT_BALLS, SLOT_RADIUS, mkShape, uid, type Entrant, type Kind, type Project, type Role, type Shape, type Stage } from './model';
 import { Race } from './race';
 import { drawHud, drawScene, drawSlotHud, handles, preload, type Cam } from './render';
 import { ALPHABET, SlotGame, parseLabels } from './slots';
 import { DT, initPhysics } from './sim';
 import { thumb } from './sprites';
-import { SLOT_LEVELS, TEMPLATES } from './templates';
+import { RACE_LEVELS, SLOT_LEVELS, TEMPLATES } from './templates';
 
 const LS = 'marble-chaos:v1';
 const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T;
@@ -22,8 +22,8 @@ function defaultProject(): Project {
     mode: 'slots',
     stages: SLOT_LEVELS.map((k) => TEMPLATES[k]()),
     entrants: codes.map(flagEntrant),
-    perEntrant: 1,
-    radius: 14,
+    perEntrant: RACE_PER_ENTRANT,
+    radius: RACE_RADIUS,
     marbleBounce: 0.4,
     loop: true,
     seed: 1,
@@ -122,9 +122,11 @@ function renderLeft() {
     <h4>Obstacles</h4>
     <div class="pal">${add('▬ Wall', 'wall')}${add('● Peg', 'peg')}${add('▲ Wedge', 'wedge')}${add('✚ Spinner', 'spinner')}${add('◠ Arc', 'arc')}${add('⬠ Polygon', 'polygon')}${add('★ Star', 'star')}${add('〰 Zigzag', 'zigzag')}</div>
     <h4>Lively bits</h4>
-    <div class="pal">${add('◉ Bumper', 'bumper')}${add('▬ Trampoline', 'trampoline')}${add('⚖ Seesaw', 'seesaw')}${add('✣ Pinwheel', 'pinwheel')}${add('⇄ Slider', 'slider')}${add('◎ Pulser', 'pulser')}${add('➠ Conveyor', 'conveyor')}${add('⇪ Bucket lift', 'lift')}</div>
+    <div class="pal">${add('◉ Bumper', 'bumper')}${add('▬ Trampoline', 'trampoline')}${add('⚖ Seesaw', 'seesaw')}${add('✣ Pinwheel', 'pinwheel')}${add('⇄ Slider', 'slider')}${add('◎ Pulser', 'pulser')}${add('➠ Conveyor', 'conveyor')}${add('⇪ Bucket lift', 'lift')}${add('⚒ Hammer', 'hammer')}${add('▭ Timed gate', 'gate')}</div>
     <h4>Zones</h4>
-    <div class="pal">${add('Finish', 'finish')}${add('Eliminate', 'kill')}${add('Spawn area', 'spawn')}${add('＋ Grow', 'grow')}${add('－ Shrink', 'shrink')}${add('⇧ Fan', 'fan')}${add('◍ Portals', 'portal')}</div>
+    <div class="pal">${add('Finish', 'finish')}${add('Spawn area', 'spawn')}${add('＋ Grow', 'grow')}${add('－ Shrink', 'shrink')}${add('⇧ Fan', 'fan')}${add('◍ Portals', 'portal')}${add('⏫ Boost pad', 'boost')}${add('▒ Mud', 'mud')}</div>
+    <h4>Hazards</h4>
+    <div class="pal">${add('Lava', 'kill')}${add('Water', 'water')}${add('Acid', 'acid')}${add('● Black hole', 'blackhole')}${add('⚡ Zapper', 'zapper')}</div>
     <p class="hint">${
       tool === 'poly'
         ? 'Click to place points. Enter or double-click to close the polygon, Esc to cancel.'
@@ -150,11 +152,11 @@ function propsHtml() {
       ${num('stage', 'timeLimit', 'Time limit (s)', st.timeLimit)}
       ${check('stage', 'elimPct', 'As a percentage of marbles left', st.elimPct)}
     </div>
-    <p class="hint">Marbles are safe when they reach a <b style="color:#1fe01f">finish</b> zone. A stage ends once enough are safe (the stragglers are eliminated), or once enough have hit an <b style="color:#e01212">eliminate</b> zone or fallen off the stage. Set eliminate to 1 for a "last one out" race.</p>`;
+    <p class="hint">Marbles are safe when they reach a <b style="color:#1fe01f">finish</b> zone. Every marble lost to a <b style="color:#e01212">hazard</b> or off the stage is out; once the safe spots are full, the stragglers are out too. A stage with no finish zone stops as soon as enough marbles have gone.</p>`;
   }
   const round = isRound(s), zone = s.role !== 'solid', solid = !zone;
   const title: Record<Kind, string> = { rect: 'Box', circle: 'Circle', tri: 'Wedge', cross: 'Spinner', arc: 'Arc', poly: 'Polygon', zig: 'Zigzag', star: 'Star', lift: 'Bucket lift' };
-  const roles: [Role, string][] = [['solid', 'Solid obstacle'], ['finish', 'Finish zone (safe)'], ['kill', 'Eliminate zone'], ['spawn', 'Spawn area'], ['grow', 'Grow zone (bigger marbles)'], ['shrink', 'Shrink zone (smaller marbles)'], ['fan', 'Fan (blows along its arrows)'], ['portal', 'Portal (pairs up in order)']];
+  const roles: [Role, string][] = [['solid', 'Solid obstacle'], ['finish', 'Finish zone (safe)'], ['kill', 'Eliminate zone'], ['spawn', 'Spawn area'], ['grow', 'Grow zone (bigger marbles)'], ['shrink', 'Shrink zone (smaller marbles)'], ['fan', 'Fan (blows along its arrows)'], ['portal', 'Portal (pairs up in order)'], ['boost', 'Boost pad (flings along its arrows)'], ['slow', 'Mud (slows marbles down)']];
   return `<h4>${title[s.kind]}</h4><div class="grid">
     ${pickList('shape', 'role', 'Acts as', roles, s.role)}
     ${num('shape', 'x', 'X', s.x)}${num('shape', 'y', 'Y', s.y)}
@@ -162,6 +164,10 @@ function propsHtml() {
     ${num('shape', 'rot', 'Rotation°', s.rot)}
     ${zone ? '' : num('shape', 'bounce', 'Bounciness', s.bounce, 0.1)}
     ${s.role === 'fan' ? num('shape', 'power', 'Fan power', s.power ?? 40, 5) : ''}
+    ${s.role === 'boost' ? num('shape', 'power', 'Launch speed', s.power ?? 700, 50) : ''}
+    ${s.role === 'slow' ? num('shape', 'power', 'Stickiness', s.power ?? 40, 5) : ''}
+    ${s.role === 'kill' ? pickList('shape', 'fate', 'Hazard', FATES, s.fate ?? 'lava') : ''}
+    ${s.role === 'kill' && s.fate === 'void' ? num('shape', 'power', 'Pull', s.power ?? 30, 5) : ''}
     ${solid && s.kind === 'rect' ? num('shape', 'belt', 'Conveyor speed (0 = off)', s.belt ?? 0, 10) : ''}
     ${s.kind === 'lift' ? num('shape', 'belt', 'Lift speed', s.belt ?? 120, 10) + num('shape', 'skew', 'Tips out (-1 left, 1 right)', s.skew, 1) : ''}
     ${s.kind === 'cross' || s.kind === 'arc' || s.kind === 'zig' ? num('shape', 't', 'Thickness', s.t) : ''}
@@ -178,6 +184,8 @@ function propsHtml() {
     ${num('shape', 'spin', 'Spin °/s', s.spin, 10)}${num('shape', 'mt', 'Slide every (s)', s.mt ?? 3, 0.5)}
     ${num('shape', 'mx', 'Slide ↔ distance', s.mx ?? 0, 10)}${num('shape', 'my', 'Slide ↕ distance', s.my ?? 0, 10)}
     ${solid && (s.kind === 'circle' || s.kind === 'rect') ? num('shape', 'pulse', 'Pulse size (0–0.9)', s.pulse ?? 0, 0.1) + num('shape', 'pulseT', 'Pulse every (s)', s.pulseT ?? 2, 0.5) : ''}
+    ${num('shape', 'swing', 'Rock ± degrees', s.swing ?? 0, 5)}${num('shape', 'swingT', 'Rock every (s)', s.swingT ?? 2, 0.5)}
+    ${solid || s.role === 'kill' ? num('shape', 'gate', 'Blink every (s, 0 = never)', s.gate ?? 0, 0.5) + num('shape', 'duty', 'On for (0–1 of the time)', s.duty ?? 0.5, 0.1) : ''}
     ${solid ? check('shape', 'free', 'Pinned, swings freely (seesaw / pinwheel)', !!s.free) : ''}
   </div>`
   }
@@ -299,6 +307,14 @@ const PRESETS: Record<string, Preset> = {
   shrink: ['circle', 'shrink', 90, 90],
   fan: ['rect', 'fan', 120, 220, { power: 40 }],
   portal: ['circle', 'portal', 70, 70],
+  hammer: ['cross', 'solid', 320, 320, { arms: 1, t: 18, rot: 90, swing: 55, swingT: 2.5 }],
+  gate: ['rect', 'solid', 160, 18, { gate: 4, duty: 0.5 }],
+  boost: ['rect', 'boost', 90, 130, { power: 700 }],
+  mud: ['rect', 'slow', 260, 120, { power: 40 }],
+  water: ['rect', 'kill', 260, 30, { fate: 'water' }],
+  acid: ['rect', 'kill', 260, 30, { fate: 'acid' }],
+  blackhole: ['circle', 'kill', 70, 70, { fate: 'void', power: 30 }],
+  zapper: ['rect', 'kill', 220, 16, { fate: 'zap', gate: 3, duty: 0.3 }],
 };
 
 function addShape(preset: string) {
@@ -410,8 +426,6 @@ async function addLogos(files: File[]) {
   commit();
   renderRight();
 }
-
-const RACE_LEVELS = ['Plinko', 'Funnel', 'Zigzag', 'Survival'];
 
 function loadLevels(names: string[], question: string) {
   if (!confirm(question)) return;
@@ -725,7 +739,7 @@ document.addEventListener('change', (e) => {
   if (k === 'mode' && project.mode !== 'slots' && !project.stages.some((st) => st.shapes.some((sh) => sh.role === 'finish')))
     loadLevels(RACE_LEVELS, 'Swap in the marble race stages?\n\nThe letter levels have no finish line. Cancel keeps your stages; Undo brings them back.');
   if (k === 'mode') $<HTMLSelectElement>('#mode').value = project.mode ?? 'race';
-  if (k === 'role' || k === 'elimPct' || k === 'skin' || k === 'mode' || k === 'free' || k === 'seedFixed') renderRight();
+  if (k === 'role' || k === 'elimPct' || k === 'skin' || k === 'mode' || k === 'free' || k === 'seedFixed' || k === 'fate') renderRight();
 });
 
 // ---------- canvas ----------

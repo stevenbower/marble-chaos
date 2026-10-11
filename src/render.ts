@@ -1,7 +1,7 @@
 import { D2R, LIFT_TILT, boxH, liftShelfW, liftShelfX, liftShelves, liftSide, liftWalls, polyPts, starPts, toWorld, triPts, zigPts } from './geom';
 import type { Project, Shape, Stage } from './model';
 import type { Race } from './race';
-import { LIVE, SLOT_H, SLOT_MOUTH, type Fx, type Marble, type Pose, type Sim } from './sim';
+import { LIVE, SLOT_H, SLOT_MOUTH, VOID_REACH, type Fx, type Marble, type Pose, type Sim } from './sim';
 import type { SlotGame } from './slots';
 import { drawFace, drawGloss, drawMarble, drawTiny, loadImage, sceneUrl, spritesReady, texUrl } from './sprites';
 
@@ -18,7 +18,7 @@ export const roleColor = (s: Shape) =>
 /** The material a shape is drawn with, or 'flat' for a plain colour. */
 export function skinOf(s: Shape, stage: Stage) {
   if (s.color) return 'flat';
-  return s.skin || (s.role === 'finish' ? 'finish' : s.role === 'kill' ? 'lava' : stage.skin || 'steel');
+  return s.skin || (s.role === 'finish' ? 'finish' : s.role === 'kill' ? (s.fate === 'water' || s.fate === 'acid' ? s.fate : 'lava') : stage.skin || 'steel');
 }
 
 const TINY = 11; // on-screen marble radius, in CSS pixels, below which spin isn't drawn
@@ -175,6 +175,51 @@ function drawSpecial(g: CanvasRenderingContext2D, s: Shape, now: number, pair: n
     }
     return;
   }
+  if (s.role === 'boost') {
+    const h = boxH(s);
+    g.fillStyle = 'rgba(255,170,30,.3)';
+    trace(g, s);
+    g.fill();
+    g.strokeStyle = '#ffd23f';
+    g.lineWidth = 3;
+    g.stroke();
+    g.save();
+    g.clip();
+    g.strokeStyle = '#fff3a0';
+    g.lineWidth = 6;
+    g.lineCap = g.lineJoin = 'round';
+    const c = Math.min(s.w * 0.32, 30), gap = 34;
+    for (let y = h / 2 + gap - ((now * 420) % gap); y > -h / 2 - gap; y -= gap) {
+      g.beginPath(); // chevrons racing the way it flings
+      g.moveTo(-c, y + c * 0.7);
+      g.lineTo(0, y);
+      g.lineTo(c, y + c * 0.7);
+      g.stroke();
+    }
+    g.restore();
+    return;
+  }
+  if (s.role === 'slow') {
+    g.fillStyle = s.color || '#6b4423';
+    g.globalAlpha *= 0.62;
+    trace(g, s);
+    g.fill();
+    g.globalAlpha /= 0.62;
+    g.strokeStyle = 'rgba(0,0,0,.45)';
+    g.lineWidth = 3;
+    g.stroke();
+    g.fillStyle = 'rgba(255,255,255,.22)';
+    const hw = s.w / 2, hh = boxH(s) / 2;
+    for (let i = 0; i < 6; i++) {
+      // bubbles that swell and pop in fixed spots
+      const u = Math.sin(i * 12.9898 + s.x) * 43758.5453, v = Math.sin(i * 78.233 + s.y) * 43758.5453;
+      const t = (now * 0.5 + i * 0.37) % 1, bx = (u - Math.floor(u) - 0.5) * hw * 1.3, by = (v - Math.floor(v) - 0.5) * hh * 1.3;
+      g.beginPath();
+      g.arc(bx, by, Math.max(2, Math.min(hw, hh) * 0.16 * t), 0, Math.PI * 2);
+      g.fill();
+    }
+    return;
+  }
   const grow = s.role === 'grow', col = grow ? '70,235,120' : '190,120,255';
   g.fillStyle = `rgba(${col},.22)`;
   trace(g, s);
@@ -196,6 +241,72 @@ function drawSpecial(g: CanvasRenderingContext2D, s: Shape, now: number, pair: n
     g.lineTo(0, k);
   }
   g.stroke();
+}
+
+/** A black hole: a dark well inside a turning ring of fire, with a faint line where its pull begins. */
+function drawVoid(g: CanvasRenderingContext2D, s: Shape, now: number, edit: boolean) {
+  const R = Math.max(s.w, boxH(s)) / 2, halo = g.createRadialGradient(0, 0, R * 0.5, 0, 0, R * 1.6);
+  halo.addColorStop(0, 'rgba(255,150,40,.55)');
+  halo.addColorStop(0.5, 'rgba(160,60,255,.25)');
+  halo.addColorStop(1, 'rgba(120,40,255,0)');
+  g.fillStyle = halo;
+  g.beginPath();
+  g.arc(0, 0, R * 1.6, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#000';
+  trace(g, s);
+  g.fill();
+  g.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const a = -now * 3 + (i * Math.PI * 2) / 3;
+    g.strokeStyle = i ? '#ffb347' : '#fff1c9';
+    g.lineWidth = Math.max(2, R * 0.12);
+    g.beginPath();
+    g.arc(0, 0, R * 1.02, a, a + 1.5);
+    g.stroke();
+  }
+  g.strokeStyle = `rgba(200,150,255,${edit ? 0.5 : 0.16})`;
+  g.lineWidth = 2;
+  g.setLineDash([6, 10]);
+  g.lineDashOffset = now * 20;
+  g.beginPath();
+  g.arc(0, 0, (s.w / 2) * VOID_REACH, 0, Math.PI * 2);
+  g.stroke();
+  g.setLineDash([]);
+}
+
+/** An electric barrier: a dark bar with bolts crackling along it (dead and dim while it is switched off). */
+function drawZap(g: CanvasRenderingContext2D, s: Shape, now: number, off: boolean) {
+  g.fillStyle = '#17170f';
+  trace(g, s);
+  g.fill();
+  g.strokeStyle = off ? '#777' : '#ffe94a';
+  g.lineWidth = 3;
+  g.stroke();
+  if (off) return;
+  const hw = s.w / 2, hh = boxH(s) / 2, long = hw >= hh, L = long ? hw : hh, T = long ? hh : hw, frame = Math.floor(now * 14);
+  g.save();
+  g.clip();
+  g.lineJoin = 'round';
+  for (let b = 0; b < 2; b++) {
+    g.strokeStyle = b ? '#ffffff' : '#7fd4ff';
+    g.lineWidth = b ? 1.5 : 4;
+    g.beginPath();
+    const n = Math.max(4, Math.round(L / 12));
+    for (let i = 0; i <= n; i++) {
+      const h = Math.sin((frame + b * 0) * 57.3 + i * 12.9898 + s.x) * 43758.5453, u = (h - Math.floor(h) - 0.5) * 1.7 * T, d = -L + (2 * L * i) / n;
+      if (long) i ? g.lineTo(d, u) : g.moveTo(d, u);
+      else i ? g.lineTo(u, d) : g.moveTo(u, d);
+    }
+    g.stroke();
+  }
+  g.restore();
+  g.globalCompositeOperation = 'lighter';
+  g.strokeStyle = 'rgba(120,200,255,.35)';
+  g.lineWidth = 10;
+  trace(g, s);
+  g.stroke();
+  g.globalCompositeOperation = 'source-over';
 }
 
 function drawShape(g: CanvasRenderingContext2D, s: Shape, pose: Pose, edit: boolean, stage: Stage, now: number, pair: number, shelves?: number[]) {
@@ -231,8 +342,15 @@ function drawShape(g: CanvasRenderingContext2D, s: Shape, pose: Pose, edit: bool
     g.restore();
     return;
   }
-  if (s.role === 'grow' || s.role === 'shrink' || s.role === 'fan' || s.role === 'portal') {
+  if (pose.off) g.globalAlpha = 0.2; // a gate that is open just now
+  if (s.role === 'grow' || s.role === 'shrink' || s.role === 'fan' || s.role === 'portal' || s.role === 'boost' || s.role === 'slow') {
     drawSpecial(g, s, now, pair);
+    g.restore();
+    return;
+  }
+  if (s.role === 'kill' && (s.fate === 'void' || s.fate === 'zap')) {
+    if (s.fate === 'void') drawVoid(g, s, now, edit);
+    else drawZap(g, s, now, !!pose.off);
     g.restore();
     return;
   }
@@ -280,7 +398,7 @@ function drawShape(g: CanvasRenderingContext2D, s: Shape, pose: Pose, edit: bool
     paint = gr;
   }
   const textured = paint !== null;
-  const glow = s.role === 'finish' ? '#3dff6a' : s.role === 'kill' ? '#ff4a1c' : skin === 'bumper' ? '#ff7ac2' : '';
+  const glow = s.role === 'finish' ? '#3dff6a' : s.role === 'kill' ? (s.fate === 'water' ? '#4fc3ff' : s.fate === 'acid' ? '#9dff3d' : '#ff4a1c') : skin === 'bumper' ? '#ff7ac2' : '';
   if (trace(g, s) === 'band') {
     g.lineCap = s.kind === 'zig' ? 'round' : 'butt';
     g.lineJoin = 'round';
@@ -385,9 +503,78 @@ function drawSlots(g: CanvasRenderingContext2D, stage: Stage, v: SlotView, clock
 
 /** Marbles burning up: the marble chars and shrinks inside a flare while embers fly off. */
 function drawFx(g: CanvasRenderingContext2D, fx: Fx[], clock: number, project: Project, r: number) {
+  const crowd = fx.length > 120; // a massacre: skip the sparks
   for (const f of fx) {
     const t = (clock - f.at) / 0.9;
     if (t < 0 || t >= 1) continue;
+    const rnd = (i: number) => {
+      const h = Math.sin(f.at * 91.7 + f.x * 3.1 + i * 12.9898) * 43758.5453;
+      return h - Math.floor(h);
+    };
+    if (f.k === 'late') {
+      // too late: fades to grey and sinks away
+      g.globalAlpha = (1 - t) * 0.8;
+      drawMarble(g, project.entrants[f.e], f.x, f.y + t * r * 2, r * (1 - t * 0.5));
+      g.fillStyle = '#555';
+      g.beginPath();
+      g.arc(f.x, f.y + t * r * 2, r * (1 - t * 0.5), 0, Math.PI * 2);
+      g.fill();
+      g.globalAlpha = 1;
+      continue;
+    }
+    if (f.k === 'void') {
+      // spirals down the plughole
+      const a = t * 7 + rnd(0) * 6, d = Math.hypot(f.x - f.tx!, f.y - f.ty!) * (1 - t), a0 = Math.atan2(f.y - f.ty!, f.x - f.tx!);
+      g.globalAlpha = 1 - t * 0.6;
+      drawMarble(g, project.entrants[f.e], f.tx! + Math.cos(a0 + a) * d, f.ty! + Math.sin(a0 + a) * d, Math.max(0.5, r * (1 - t)));
+      g.globalAlpha = 1;
+      continue;
+    }
+    if (f.k === 'water' || f.k === 'acid') {
+      // sinks, under a spreading ring and a few drops
+      const acid = f.k === 'acid', col = acid ? '170,255,80' : '150,220,255';
+      g.globalAlpha = 1 - t;
+      drawMarble(g, project.entrants[f.e], f.x, f.y + t * r * 1.5, r * (1 - t * 0.6));
+      g.strokeStyle = `rgba(${col},${1 - t})`;
+      g.lineWidth = Math.max(1, r * 0.3 * (1 - t));
+      g.beginPath();
+      g.ellipse(f.x, f.y, r * (1 + t * 3), r * (0.4 + t * 1.2), 0, 0, Math.PI * 2);
+      g.stroke();
+      g.fillStyle = `rgb(${col})`;
+      for (let i = 0; i < (crowd ? 0 : 7); i++) {
+        const u = rnd(i), a = -Math.PI / 2 + (u - 0.5) * 2, d = r * (2 + 4 * u) * t;
+        g.beginPath();
+        g.arc(f.x + Math.cos(a) * d, f.y + Math.sin(a) * d + r * 5 * t * t, Math.max(0.6, r * 0.25 * (1 - t)), 0, Math.PI * 2);
+        g.fill();
+      }
+      g.globalAlpha = 1;
+      continue;
+    }
+    if (f.k === 'zap') {
+      // a white flash, a few forks of lightning, then a cinder dropping away
+      g.globalAlpha = 1 - t;
+      drawMarble(g, project.entrants[f.e], f.x, f.y + t * t * r * 4, r * (1 - t * 0.5));
+      g.fillStyle = t < 0.25 ? '#ffffff' : '#111';
+      g.globalAlpha = t < 0.25 ? 0.9 : Math.min(0.85, t);
+      g.beginPath();
+      g.arc(f.x, f.y + t * t * r * 4, r * (1 - t * 0.5), 0, Math.PI * 2);
+      g.fill();
+      if (t < 0.45 && !crowd) {
+        g.globalAlpha = 1 - t / 0.45;
+        g.strokeStyle = '#bfe9ff';
+        g.lineWidth = Math.max(1, r * 0.22);
+        g.lineJoin = 'round';
+        for (let i = 0; i < 4; i++) {
+          const a = rnd(i) * Math.PI * 2;
+          g.beginPath();
+          g.moveTo(f.x, f.y);
+          for (let j = 1; j <= 3; j++) g.lineTo(f.x + Math.cos(a + (rnd(i * 7 + j) - 0.5) * 1.2) * r * j * 1.3, f.y + Math.sin(a + (rnd(i * 5 + j) - 0.5) * 1.2) * r * j * 1.3);
+          g.stroke();
+        }
+      }
+      g.globalAlpha = 1;
+      continue;
+    }
     const rr = r * (1 - t * 0.85);
     g.globalAlpha = 1 - t * 0.5;
     drawMarble(g, project.entrants[f.e], f.x, f.y - t * r, rr);
@@ -406,7 +593,7 @@ function drawFx(g: CanvasRenderingContext2D, fx: Fx[], clock: number, project: P
     g.beginPath();
     g.arc(f.x, f.y, R, 0, Math.PI * 2);
     g.fill();
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < (crowd ? 0 : 10); i++) {
       // embers on fixed, per-marble pseudo-random paths
       const h = Math.sin(f.at * 91.7 + f.x * 3.1 + i * 12.9898) * 43758.5453, u = h - Math.floor(h);
       const a = -Math.PI / 2 + (u - 0.5) * 2.6, d = r * (1 + 4 * u) * t;
@@ -540,8 +727,8 @@ export function drawHud(g: CanvasRenderingContext2D, cw: number, ch: number, rac
   text(race.stage.name.toUpperCase(), cw - 16 * u, 12 * u, 34, 'right');
   text(`${race.entrantsIn()} LEFT`, 16 * u, 12 * u, 26);
   if (race.phase !== 'done') {
-    const gone = race.quota - race.outs;
-    text(gone > 0 ? `${gone} MORE OUT THIS STAGE` : 'STAGE COMPLETE', 16 * u, 44 * u, 16, 'left', gone > 0 ? '#ff7b7b' : '#7dff7d');
+    const spots = race.total - Math.max(race.quota, race.outs) - race.safes;
+    text(race.phase === 'pause' ? 'STAGE COMPLETE' : `${race.outs} OUT · ${Math.max(0, spots)} SAFE SPOTS LEFT`, 16 * u, 44 * u, 16, 'left', race.phase === 'pause' ? '#7dff7d' : '#ff7b7b');
     const recent = race.feed.filter((f) => race.clock - f.at < 5).slice(-6);
     recent.forEach((f, i) => {
       const y = (78 + i * 34) * u;

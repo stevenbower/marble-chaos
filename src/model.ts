@@ -1,6 +1,12 @@
 export type Kind = 'rect' | 'circle' | 'tri' | 'cross' | 'arc' | 'poly' | 'zig' | 'star' | 'lift';
-/** grow/shrink resize marbles passing through, fan pushes them along its arrow, portals come in pairs. */
-export type Role = 'solid' | 'finish' | 'kill' | 'spawn' | 'grow' | 'shrink' | 'fan' | 'portal';
+/**
+ * grow/shrink resize marbles passing through, fan pushes them along its arrow, portals come in pairs, boost flings
+ * marbles along its arrow, slow is mud that drags on them.
+ */
+export type Role = 'solid' | 'finish' | 'kill' | 'spawn' | 'grow' | 'shrink' | 'fan' | 'portal' | 'boost' | 'slow';
+/** How an eliminate zone finishes a marble off: burnt, drowned, dissolved, swallowed by a black hole, or zapped. */
+export type Fate = 'lava' | 'water' | 'acid' | 'void' | 'zap';
+export const FATES: [Fate, string][] = [['lava', 'Lava (burns up)'], ['water', 'Water (splash)'], ['acid', 'Acid (dissolves)'], ['void', 'Black hole (pulls marbles in)'], ['zap', 'Electric (zapped)']];
 
 export interface Shape {
   id: string;
@@ -26,7 +32,12 @@ export interface Shape {
   pulse?: number; // circles and boxes: swells and shrinks by this fraction of its size...
   pulseT?: number; // ...once every this many seconds
   free?: boolean; // pinned at its centre but free to swing (seesaw, pinwheel)
-  power?: number; // fan strength
+  power?: number; // fan strength, boost launch speed, how hard mud drags or a black hole pulls
+  fate?: Fate; // eliminate zones: what happens to the marble
+  swing?: number; // rocks this many degrees either side of its rotation...
+  swingT?: number; // ...once every this many seconds
+  gate?: number; // blinks: solid (or deadly) for part of every this many seconds...
+  duty?: number; // ...this fraction of the time (default half)
   belt?: number; // boxes: conveyor speed along the box, units/s (negative runs the other way); lifts: shelf speed
 }
 
@@ -72,6 +83,9 @@ export interface Project {
   seedFixed?: boolean; // use `seed` so runs repeat exactly; otherwise every level draws a fresh seed from the clock
 }
 
+/** Marble race defaults: about 1500 small marbles between the stock entrants. */
+export const RACE_PER_ENTRANT = 47, RACE_RADIUS = 8;
+
 /** Letter slots defaults: a big crowd of small marbles. */
 export const SLOT_BALLS = 2000, SLOT_RADIUS = 7;
 
@@ -115,7 +129,7 @@ export const SKINS: [string, string][] = [
   ['steel', 'Steel'], ['stone', 'Stone'], ['wood', 'Wood'], ['ice', 'Ice'], ['neon', 'Neon circuit'], ['gold', 'Gold'],
   ['bumper', 'Bumper'], ['sand', 'Sandstone'], ['cloud', 'Cloud'], ['rainbow', 'Rainbow'],
   ['candy', 'Candy cane'], ['coral', 'Coral'], ['moon', 'Moon rock'], ['bamboo', 'Bamboo'],
-  ['finish', 'Green energy'], ['lava', 'Lava'], ['flat', 'Flat colour'],
+  ['finish', 'Green energy'], ['lava', 'Lava'], ['water', 'Water'], ['acid', 'Acid'], ['flat', 'Flat colour'],
 ];
 /** Keys starting `scene-` are full illustrations in public/bg; the rest are tiles in public/tex. */
 export const BACKDROPS: [string, string][] = [
@@ -127,6 +141,10 @@ export const BACKDROPS: [string, string][] = [
   ['scene-sky', 'Cloud Kingdom'], ['scene-toys', 'Playroom'],
   ['scene-cookie', 'Cookie Bakery'], ['scene-mine', 'Gold Mine'], ['scene-canyon', 'Canyon'], ['scene-icecream', 'Ice Cream Parlour'],
   ['scene-mill', 'Watermill'],
+  ['scene-lavacave', 'Lava Cavern'], ['scene-sharks', 'Shark Bay'], ['scene-nebula', 'Black Hole'], ['scene-storm', 'Storm Tower'],
+  ['scene-glacier', 'Ice Cave'], ['scene-mansion', 'Haunted Hall'], ['scene-arcade', 'Neon Arcade'], ['scene-dungeon', 'Dragon Dungeon'],
+  ['scene-swamp', 'Swamp'], ['scene-launchpad', 'Launch Pad'], ['scene-hive', 'Beehive'], ['scene-factory', 'Toy Factory'],
+  ['scene-lab', 'Mad Lab'], ['scene-temple', 'Jungle Temple'], ['scene-airship', 'Sky Pirates'],
 ];
 
 /** Ready-made marble designs; textures live in public/marbles. */

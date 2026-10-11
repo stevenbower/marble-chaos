@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier2d-compat';
 import { D2R, LIFT_TILT, boxH, hit, liftShelfW, liftShelfX, liftShelves, liftSide, liftWalls, polyPts, starPts, toWorld, triPts, triangulate, zigPts } from './geom';
-import type { Shape, Stage } from './model';
+import type { Fate, Shape, Stage } from './model';
 
 export const SCALE = 50; // stage units per physics metre
 export const DT = 1 / 120;
@@ -18,6 +18,9 @@ export interface Fx {
   y: number;
   e: number;
   at: number;
+  k?: Fate | 'late'; // what did for it (lava when not given); 'late' crossed the line after the safe spots had gone
+  tx?: number; // black holes: where it is dragged to
+  ty?: number;
 }
 
 export interface Marble {
@@ -38,10 +41,13 @@ export interface Pose {
   y: number;
   a: number;
   f: number;
+  off?: boolean; // a gate that is open just now: not solid, not deadly
 }
 
 const canPulse = (s: Shape) => !!s.pulse && (s.kind === 'circle' || s.kind === 'rect');
-export const isAnimated = (s: Shape) => !!(s.spin || s.mx || s.my || canPulse(s));
+export const isAnimated = (s: Shape) => !!(s.spin || s.mx || s.my || s.swing || s.gate || canPulse(s));
+/** Is a blinking gate open (out of play) `t` seconds in? It starts shut. */
+export const gateOff = (s: Shape, t: number) => !!s.gate && (t / Math.max(0.2, s.gate)) % 1 >= Math.max(0.05, Math.min(0.95, s.duty ?? 0.5));
 
 /** A shape's pose `t` seconds into a run, from its spin, slide and pulse settings. */
 export function poseAt(s: Shape, t: number): Pose {
@@ -50,8 +56,9 @@ export function poseAt(s: Shape, t: number): Pose {
   return {
     x: s.x + (s.mx || 0) * m,
     y: s.y + (s.my || 0) * m,
-    a: (s.rot + s.spin * t) * D2R,
+    a: (s.rot + s.spin * t + (s.swing ? s.swing * wave(s.swingT, 2) : 0)) * D2R,
     f: canPulse(s) ? 1 + Math.min(0.9, Math.abs(s.pulse!)) * wave(s.pulseT, 2) : 1,
+    off: gateOff(s, t),
   };
 }
 
@@ -106,6 +113,8 @@ function colliders(s: Shape): RAPIER.ColliderDesc[] {
   }
 }
 
+/** A black hole's pull reaches this many times its radius. */
+export const VOID_REACH = 3;
 const RESIZE = 1.5; // how much a grow or shrink zone changes a marble's radius
 
 export class Sim {
@@ -122,6 +131,7 @@ export class Sim {
   private belts: Shape[];
   private lifts: { s: Shape; shelves: RAPIER.RigidBody[]; ys: number[] }[] = [];
   private portals: Shape[];
+  private voids: Shape[];
 
   constructor(public stage: Stage, public r: number, bounce: number, entrants: number[], rng: () => number, public slots = 0) {
     const k = 1 / SCALE;
@@ -129,7 +139,8 @@ export class Sim {
     this.world.timestep = DT;
     // With a slot strip the slots are the only way to score, so finish zones sit out.
     this.zones = stage.shapes.filter((s) => s.role === 'kill' || (s.role === 'finish' && !slots));
-    this.specials = stage.shapes.filter((s) => s.role === 'grow' || s.role === 'shrink' || s.role === 'fan' || s.role === 'portal');
+    this.specials = stage.shapes.filter((s) => s.role === 'grow' || s.role === 'shrink' || s.role === 'fan' || s.role === 'portal' || s.role === 'boost' || s.role === 'slow');
+    this.voids = stage.shapes.filter((s) => s.role === 'kill' && s.fate === 'void');
     this.portals = stage.shapes.filter((s) => s.role === 'portal');
     this.belts = stage.shapes.filter((s) => s.role === 'solid' && s.kind === 'rect' && !!s.belt);
 
@@ -220,7 +231,8 @@ export class Sim {
   /** Is the marble's centre inside this (possibly moving) zone? */
   private inside(z: Shape, m: Marble, pad: number) {
     const p = this.pose(z);
-    return hit(z, m.x - (p.x - z.x), m.y - (p.y - z.y), p.a, pad);
+    if (p.off) return false;
+    return hit(z, z.x + (m.x - p.x) / p.f, z.y + (m.y - p.y) / p.f, p.a, pad);
   }
 
   /** Grow, shrink, fan and portal zones act on the marble directly; nothing is reported to the game. */
@@ -231,6 +243,17 @@ export class Sim {
       if (z.role === 'fan') {
         const a = this.pose(z).a, push = (z.power ?? 40) * m.body!.mass() * DT;
         m.body!.applyImpulse({ x: Math.sin(a) * push, y: -Math.cos(a) * push }, true);
+        continue;
+      }
+      if (z.role === 'slow') {
+        const v = m.body!.linvel(), keep = 1 - Math.max(0.01, Math.min(0.5, (z.power ?? 40) / 500));
+        m.body!.setLinvel({ x: v.x * keep, y: v.y * keep }, true);
+        continue;
+      }
+      if (z.role === 'boost') {
+        // a kick along the arrow, topped up for as long as the marble is on the pad
+        const a = this.pose(z).a, v = (z.power ?? 700) / SCALE;
+        m.body!.setLinvel({ x: Math.sin(a) * v, y: -Math.cos(a) * v }, true);
         continue;
       }
       inZone = z.id;
@@ -265,6 +288,7 @@ export class Sim {
       body.setNextKinematicRotation(p.a);
       if (p.f !== 1 && s.kind === 'circle') cols[0].setRadius((s.w / 2) * p.f * k);
       else if (p.f !== 1) cols[0].setHalfExtents({ x: (s.w / 2) * p.f * k, y: (s.h / 2) * p.f * k });
+      if (s.gate && cols[0].isEnabled() === !!p.off) for (const c of cols) c.setEnabled(!p.off);
     }
     for (const lift of this.lifts) {
       const ys = liftShelves(lift.s, this.time), a = lift.s.rot * D2R;
@@ -302,6 +326,13 @@ export class Sim {
         const a = this.pose(b).a, tx = Math.cos(a), ty = Math.sin(a), v = m.body.linvel();
         const dv = (b.belt! / SCALE - (v.x * tx + v.y * ty)) * 0.2;
         m.body.setLinvel({ x: v.x + tx * dv, y: v.y + ty * dv }, true);
+      }
+      for (const z of this.voids) {
+        // a black hole drags in whatever strays within three times its size
+        const p = this.pose(z), dx = p.x - m.x, dy = p.y - m.y, d = Math.hypot(dx, dy), reach = (z.w / 2) * VOID_REACH;
+        if (d >= reach || d < 1) continue;
+        const pull = ((z.power ?? 30) * (1 - d / reach) * m.body.mass() * DT) / d;
+        m.body.applyImpulse({ x: dx * pull, y: dy * pull }, true);
       }
       const zone = this.zones.find((z) => this.inside(z, m, m.r * 0.5));
       if (zone) onZone(m, zone.role as 'finish' | 'kill', zone);

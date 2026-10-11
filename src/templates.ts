@@ -58,6 +58,31 @@ const pathStage = (name: string, scene: string, skin: string, y0: number, spawn:
     { spawn, h: y0 + depth, timeLimit: 150 },
   );
 
+type RaceOpts = { timeLimit?: number; gravity?: number; floor?: boolean };
+/** A marble race stage: `spawn` is [x, y, w, h]; unless `floor` is off the whole floor is the finish line. */
+const raceStage = (name: string, scene: string, skin: string, h: number, spawn: number[], shapes: Shape[], o: RaceOpts = {}) =>
+  mkStage(
+    name,
+    [mkShape('rect', 'spawn', spawn[0], spawn[1], spawn[2], spawn[3]), ...shapes, ...(o.floor === false ? [] : [mkShape('rect', 'finish', W / 2, h - 14, W, 28)])],
+    { h, timeLimit: o.timeLimit ?? 180, gravity: o.gravity ?? 1, bgTex: scene, skin },
+  );
+const TOP = [W / 2, 80, 1200, 120];
+
+/** A plank from one point to another. */
+const ramp = (x0: number, y0: number, x1: number, y1: number, extra: Partial<Shape> = {}) =>
+  mkShape('rect', 'solid', (x0 + x1) / 2, (y0 + y1) / 2, Math.hypot(x1 - x0, y1 - y0), 20, { rot: (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI, ...extra });
+const hazard = (fate: Shape['fate'], kind: 'rect' | 'circle', x: number, y: number, w: number, h: number, extra: Partial<Shape> = {}) =>
+  mkShape(kind, 'kill', x, y, w, h, { fate, ...extra });
+/** A pendulum hanging from (x, y): `len` long, rocking `swing` degrees either way. */
+const hammer = (x: number, y: number, len: number, swing: number, swingT: number, extra: Partial<Shape> = {}) =>
+  mkShape('cross', 'solid', x, y, len * 2, len * 2, { arms: 1, t: 18, rot: 90, swing, swingT, ...extra });
+
+/** The marble race stages: every one has hazards, and the whole floor (or what is left of it) is the finish line. */
+export const RACE_LEVELS = [
+  'Lava Lair', 'Shark Bay', 'Black Hole Alley', 'Thunder Tower', 'Glacier Gauntlet', 'Haunted Halls', 'Pinball Palace', 'Dragon Keep',
+  'Swamp Stomp', 'Rocket Launch', 'Honey Hive', 'Factory Frenzy', 'Toxic Lab', 'Temple of Traps', 'Sky Pirates',
+];
+
 export const PATH_LEVELS = ['Cookie Conveyor', 'Gold Mine Lift', 'Canyon Rapids', 'Ice Cream Climb', 'Watermill Wheel'];
 
 /** The stages loaded when letter slots is switched on. */
@@ -355,6 +380,180 @@ export const TEMPLATES: Record<string, () => Stage> = {
       ...sieve(640, 790, 20, 790, 64, 32, [130, 240]), ...sieve(640, 790, 1260, 790, 64, 32, [170, 290]),
       ...pegs(880, 60, 1230, 78, 20),
     ], 420),
+
+  // ----- marble race levels: hazards on the way down, the floor is the finish line -----
+  // stepping stones, geysers of lava that swell and shrink, wandering lava falls and pools in the floor
+  'Lava Lair': () => {
+    const s: Shape[] = [...pegs(240, 100, 1200, 154, 44), ...pegs(430, 177, 1120, 154, 44)];
+    [260, 640, 1020].forEach((x, i) => s.push(hazard('lava', 'circle', x, 335, 54, 54, { pulse: 0.6, pulseT: 2.2 + i * 0.5 })));
+    s.push(hazard('lava', 'rect', 400, 610, 26, 170, { mx: 250, mt: 7 }), hazard('lava', 'rect', 880, 610, 26, 170, { mx: -250, mt: 9 }));
+    [160, 480, 800, 1120].forEach((x, i) => s.push(mkShape('rect', 'solid', x, 760, 170, 20, { mx: 100, mt: 4 + (i % 2) })));
+    for (const x of [150, 640, 1130]) {
+      s.push(hazard('lava', 'rect', x, 1086, 190, 28), mkShape('tri', 'solid', x, 960, 150, 80)); // a pool, and a roof that sheds most marbles clear of it
+    }
+    return raceStage('Lava Lair', 'scene-lavacave', 'stone', 1100, TOP, s);
+  },
+
+  // belts with gaps over shark-infested water
+  'Shark Bay': () =>
+    raceStage('Shark Bay', 'scene-sharks', 'coral', 1000, [240, 70, 400, 100], [
+      ...sieve(20, 230, 1170, 230, 170, 22, [240]), hazard('water', 'rect', 595, 300, 1150, 22),
+      ...sieve(1260, 470, 110, 470, 170, 22, [240]), hazard('water', 'rect', 685, 540, 1150, 22),
+      ...sieve(20, 710, 1170, 710, 170, 22, [240]), hazard('water', 'rect', 595, 780, 1150, 22),
+      hazard('water', 'circle', 640, 890, 50, 50, { mx: 420, mt: 8 }),
+    ]),
+
+  // low gravity, and three black holes that drag in whatever strays close
+  'Black Hole Alley': () => {
+    const s: Shape[] = [...pegs(250, 80, 1200, 160, 36, { bounce: 0.9 }), ...pegs(540, 160, 1120, 160, 36, { bounce: 0.9 }), ...pegs(800, 80, 1200, 140, 30, { bounce: 0.9 })];
+    [[320, 400], [960, 400], [640, 670]].forEach(([x, y], i) => {
+      s.push(hazard('void', 'circle', x, y, 60, 60, { power: 26 }));
+      s.push(mkShape('arc', 'solid', x, y, 230, 230, { t: 12, sweep: 110, spin: i % 2 ? -70 : 70, skin: 'gold' })); // a shield that swings round it
+    });
+    return raceStage('Black Hole Alley', 'scene-nebula', 'moon', 1000, TOP, s, { gravity: 0.45 });
+  },
+
+  // everything funnels into a tower with three lightning gates that flash on and off
+  'Thunder Tower': () =>
+    raceStage('Thunder Tower', 'scene-storm', 'steel', 1200, TOP, [
+      ramp(0, 220, 560, 330), ramp(1280, 220, 720, 330),
+      mkShape('rect', 'solid', 440, 700, 20, 640), mkShape('rect', 'solid', 840, 700, 20, 640),
+      ramp(450, 480, 700, 540), ramp(830, 640, 580, 700), ramp(450, 800, 700, 860),
+      hazard('zap', 'rect', 770, 560, 130, 14, { gate: 3, duty: 0.06 }),
+      hazard('zap', 'rect', 510, 720, 130, 14, { gate: 3.7, duty: 0.06 }),
+      hazard('zap', 'rect', 770, 880, 130, 14, { gate: 2.6, duty: 0.06 }),
+      mkShape('cross', 'solid', 640, 1090, 150, 150, { t: 14, arms: 3, spin: 160 }),
+    ]),
+
+  // icy switchbacks with pendulums swinging over them, and patches of freezing water sliding across the drops
+  'Glacier Gauntlet': () =>
+    raceStage('Glacier Gauntlet', 'scene-glacier', 'ice', 1150, [220, 70, 380, 100], [
+      ramp(0, 230, 1050, 330), hammer(560, 90, 135, 50, 2.6),
+      ramp(1280, 520, 230, 620), hammer(760, 395, 115, 50, 3.1),
+      ramp(0, 810, 1050, 910), hazard('water', 'rect', 1125, 990, 40, 22, { mx: 40, mt: 2.3 }), hammer(500, 680, 115, 50, 2.2),
+    ]),
+
+  // sloping floors whose trapdoors open and shut, a swinging chandelier and a black hole in the cellar
+  'Haunted Halls': () =>
+    raceStage('Haunted Halls', 'scene-mansion', 'stone', 1280, TOP, [
+      ramp(0, 250, 1100, 385), mkShape('rect', 'solid', 1190, 396, 182, 18, { rot: 7, gate: 3, duty: 0.4 }),
+      ramp(1280, 520, 180, 655), mkShape('rect', 'solid', 90, 666, 182, 18, { rot: -7, gate: 3.6, duty: 0.4 }),
+      ramp(0, 790, 1100, 925), mkShape('rect', 'solid', 1190, 936, 182, 18, { rot: 7, gate: 2.6, duty: 0.4 }),
+      hammer(640, 640, 165, 55, 2.4),
+      ramp(1280, 1080, 520, 1140),
+      hazard('void', 'circle', 355, 1195, 64, 64, { power: 22 }),
+    ]),
+
+  // bumpers, flippers that never stop, boost lanes up the walls and an electric drain
+  'Pinball Palace': () => {
+    const s: Shape[] = [];
+    const bumper = (x: number, y: number) => s.push(mkShape('circle', 'solid', x, y, 60, 60, { bounce: 1.4, skin: 'bumper' }));
+    for (const x of [240, 440, 640, 840, 1040]) bumper(x, 260);
+    for (const x of [340, 540, 740, 940]) bumper(x, 390);
+    s.push(mkShape('rect', 'solid', 200, 560, 170, 16, { rot: 32, bounce: 1.3, skin: 'bumper' }), mkShape('rect', 'solid', 1080, 560, 170, 16, { rot: -32, bounce: 1.3, skin: 'bumper' }));
+    s.push(mkShape('cross', 'solid', 440, 800, 300, 300, { arms: 1, t: 20, rot: 25, swing: 30, swingT: 1.1, skin: 'gold' }), mkShape('cross', 'solid', 840, 800, 300, 300, { arms: 1, t: 20, rot: 155, swing: 30, swingT: 1.3, skin: 'gold' })); // flippers
+    s.push(mkShape('rect', 'boost', 45, 900, 70, 130, { rot: 16, power: 950 }), mkShape('rect', 'boost', 1235, 900, 70, 130, { rot: -16, power: 950 }));
+    s.push(mkShape('rect', 'solid', 88, 910, 12, 150), mkShape('rect', 'solid', 1192, 910, 12, 150)); // lane guides
+    s.push(hazard('zap', 'rect', 640, 1086, 200, 28), mkShape('rect', 'finish', 270, 1086, 540, 28), mkShape('rect', 'finish', 1010, 1086, 540, 28));
+    return raceStage('Pinball Palace', 'scene-arcade', 'neon', 1100, TOP, s, { floor: false });
+  },
+
+  // two drawbridges over lava, a swinging axe, then a fireball rolling up and down the last corridor
+  'Dragon Keep': () =>
+    raceStage('Dragon Keep', 'scene-dungeon', 'stone', 920, [190, 70, 320, 100], [
+      ramp(0, 240, 365, 275), mkShape('rect', 'solid', 425, 281, 124, 18, { rot: 5, gate: 9, duty: 0.94 }),
+      mkShape('rect', 'solid', 355, 420, 16, 270), mkShape('rect', 'solid', 495, 430, 16, 250), hazard('lava', 'rect', 425, 545, 124, 30),
+      ramp(485, 287, 835, 325), hammer(660, 110, 150, 45, 2.8),
+      mkShape('rect', 'solid', 895, 331, 124, 18, { rot: 5, gate: 7, duty: 0.92 }),
+      mkShape('rect', 'solid', 825, 470, 16, 270), mkShape('rect', 'solid', 965, 480, 16, 250), hazard('lava', 'rect', 895, 595, 124, 30),
+      ramp(955, 337, 1190, 366),
+      ramp(1280, 690, 210, 790),
+      hazard('lava', 'circle', 700, 657, 40, 40, { mx: 380, my: -90, mt: 7 }),
+    ]),
+
+  // five lanes through the reeds: some are quick, some are mud, and one has a crocodile in it
+  'Swamp Stomp': () => {
+    const s: Shape[] = [];
+    for (const x of [256, 512, 768, 1024]) s.push(mkShape('rect', 'solid', x, 560, 14, 640, { skin: 'bamboo' }), mkShape('tri', 'solid', x, 225, 40, 34, { skin: 'bamboo' }));
+    s.push(mkShape('rect', 'slow', 128, 430, 220, 220, { power: 34 }), ...pegs(700, 70, 200, 110, 30, { bounce: 1 }));
+    s.push(...pegs(330, 330, 450, 108, 34, { bounce: 1 }), ...pegs(470, 384, 400, 100, 34, { bounce: 1 }), ...pegs(610, 330, 450, 108, 34, { bounce: 1 }), ...pegs(750, 384, 400, 100, 34, { bounce: 1 }));
+    s.push(hazard('water', 'circle', 640, 520, 64, 64, { mx: 62, mt: 3 }), mkShape('rect', 'slow', 640, 760, 220, 110, { power: 26 }));
+    s.push(mkShape('rect', 'boost', 896, 380, 120, 130, { rot: 180, power: 600 }), ...pegs(640, 840, 960, 112, 30, { bounce: 1 }), ...pegs(780, 896, 900, 100, 30, { bounce: 1 }));
+    s.push(mkShape('rect', 'slow', 1152, 620, 220, 180, { power: 34 }), ...pegs(380, 1100, 1210, 110, 30, { bounce: 1 }));
+    s.push(...pegs(960, 90, 1200, 148, 34, { bounce: 1 }));
+    return raceStage('Swamp Stomp', 'scene-swamp', 'bamboo', 1100, TOP, s);
+  },
+
+  // a ramp, a launch pad and a long jump over a lake of lava
+  'Rocket Launch': () =>
+    raceStage('Rocket Launch', 'scene-launchpad', 'steel', 920, [190, 70, 320, 100], [
+      ramp(0, 250, 350, 430), ramp(350, 430, 470, 395),
+      mkShape('rect', 'boost', 400, 385, 110, 60, { rot: 58, power: 640 }),
+      mkShape('rect', 'solid', 478, 660, 16, 500),
+      mkShape('cross', 'solid', 700, 210, 150, 150, { t: 14, arms: 3, spin: 110 }),
+      mkShape('circle', 'solid', 880, 330, 44, 44, { bounce: 0.9, mx: 60, mt: 3 }),
+      mkShape('rect', 'solid', 620, 800, 90, 16, { bounce: 1.5, skin: 'bumper' }), mkShape('rect', 'solid', 790, 800, 90, 16, { bounce: 1.5, skin: 'bumper', rot: -8 }),
+      hazard('lava', 'rect', 693, 906, 414, 28), mkShape('rect', 'finish', 1090, 906, 380, 28), mkShape('rect', 'solid', 235, 906, 470, 28),
+    ], { floor: false }),
+
+  // honeycomb, pools of honey that hold marbles back, and a few wasps
+  'Honey Hive': () => {
+    const s: Shape[] = [], HONEY = '#f5a623';
+    for (let row = 0; row < 6; row++)
+      for (let x = row % 2 ? 160 : 80; x <= 1210; x += 160) s.push(mkShape('star', 'solid', x, 260 + row * 112, 64, 64, { arms: 6, rot: 30, skin: 'gold' }));
+    for (const [x, y] of [[240, 316], [720, 316], [1120, 428], [400, 540], [880, 540], [160, 652], [640, 764], [1040, 764]]) s.push(mkShape('circle', 'slow', x, y, 120, 120, { power: 36, color: HONEY }));
+    [[400, 372], [900, 600], [560, 830]].forEach(([x, y], i) => s.push(hazard('zap', 'circle', x, y, 30, 30, { mx: 260, mt: 5 + i * 1.5 })));
+    return raceStage('Honey Hive', 'scene-hive', 'gold', 1100, TOP, s);
+  },
+
+  // two belts, a bucket lift, then a sorting belt whose trapdoor drops rejects into a vat of acid
+  'Factory Frenzy': () =>
+    raceStage('Factory Frenzy', 'scene-factory', 'steel', 1350, [250, 70, 440, 100], [
+      mkShape('rect', 'solid', 450, 230, 900, 22, { belt: 190 }),
+      mkShape('rect', 'solid', 830, 360, 900, 22, { belt: -190 }),
+      ramp(0, 822, 562, 920), mkShape('lift', 'solid', 640, 710, 150, 440, { arms: 4, belt: 160, skew: 1 }), ramp(708, 580, 1200, 650),
+      mkShape('rect', 'solid', 1050, 1050, 400, 22, { belt: -180 }),
+      mkShape('rect', 'solid', 760, 1050, 180, 18, { gate: 3, duty: 0.7 }),
+      mkShape('rect', 'solid', 420, 1050, 500, 22, { belt: -180 }),
+      mkShape('rect', 'solid', 632, 1180, 14, 150), mkShape('rect', 'solid', 888, 1180, 14, 150), hazard('acid', 'rect', 760, 1240, 242, 30),
+    ]),
+
+  // test tubes: some shrink, some grow, some have a drop of acid going up and down; then a tesla coil
+  'Toxic Lab': () => {
+    const s: Shape[] = [];
+    for (let x = 160; x <= 1120; x += 160) s.push(mkShape('rect', 'solid', x, 430, 14, 380, { skin: 'ice' }), mkShape('tri', 'solid', x, 225, 44, 34, { skin: 'ice' }));
+    [1, 4, 6].forEach((i, n) => s.push(hazard('acid', 'circle', 80 + i * 160, 430, 44, 44, { my: 130, mt: 3 + n })));
+    s.push(mkShape('circle', 'shrink', 80, 330, 90, 90), mkShape('circle', 'grow', 400, 330, 90, 90), mkShape('circle', 'shrink', 880, 330, 90, 90), mkShape('circle', 'grow', 1200, 330, 90, 90));
+    [0, 2, 3, 5, 7].forEach((i, n) => s.push(mkShape('cross', 'solid', 80 + i * 160, 500, 96, 96, { t: 12, arms: 3, spin: n % 2 ? -150 : 150 })));
+    s.push(hazard('zap', 'rect', 640, 740, 1060, 12, { gate: 3.2, duty: 0.12 }), mkShape('circle', 'solid', 90, 740, 40, 40, { skin: 'gold' }), mkShape('circle', 'solid', 1190, 740, 40, 40, { skin: 'gold' }));
+    s.push(...pegs(860, 100, 1200, 120, 30), ...pegs(950, 160, 1120, 120, 30));
+    return raceStage('Toxic Lab', 'scene-lab', 'steel', 1100, TOP, s);
+  },
+
+  // stone wheels, idols that blow marbles towards lava alcoves, swinging logs and a rolling boulder
+  'Temple of Traps': () =>
+    raceStage('Temple of Traps', 'scene-temple', 'sand', 1200, TOP, [
+      mkShape('cross', 'solid', 400, 330, 300, 300, { t: 18, arms: 4, spin: 35 }), mkShape('cross', 'solid', 880, 330, 300, 300, { t: 18, arms: 4, spin: -35 }),
+      mkShape('rect', 'fan', 330, 560, 120, 420, { rot: 270, power: 20 }), mkShape('rect', 'fan', 950, 560, 120, 420, { rot: 90, power: 20 }),
+      mkShape('tri', 'solid', 640, 560, 160, 110),
+      mkShape('rect', 'solid', 60, 640, 120, 16), mkShape('rect', 'solid', 126, 610, 12, 76), hazard('lava', 'rect', 58, 622, 116, 20),
+      mkShape('rect', 'solid', 1220, 640, 120, 16), mkShape('rect', 'solid', 1154, 610, 12, 76), hazard('lava', 'rect', 1222, 622, 116, 20),
+      hammer(420, 640, 170, 55, 2.6), hammer(860, 640, 170, 55, 3.2),
+      mkShape('circle', 'solid', 640, 960, 110, 110, { mx: 430, mt: 6 }),
+      hazard('lava', 'rect', 640, 1186, 220, 28), mkShape('tri', 'solid', 640, 1090, 150, 70),
+    ]),
+
+  // puffing clouds, propellers, cannons on the walls, and three decks to land on with the sea in between
+  'Sky Pirates': () => {
+    const s: Shape[] = [];
+    for (let x = 140, i = 0; x <= 1140; x += 200, i++) s.push(mkShape('circle', 'solid', x, 250, 70, 70, { bounce: 0.9, pulse: 0.4, pulseT: i % 2 ? 2.6 : 2, skin: 'cloud' }));
+    s.push(mkShape('cross', 'solid', 330, 430, 210, 210, { t: 14, arms: 2, spin: 200 }), mkShape('cross', 'solid', 950, 430, 210, 210, { t: 14, arms: 2, spin: -200 }));
+    s.push(mkShape('rect', 'boost', 55, 640, 90, 120, { rot: 50, power: 650 }), mkShape('rect', 'boost', 1225, 640, 90, 120, { rot: -50, power: 650 }));
+    s.push(mkShape('rect', 'fan', 440, 800, 90, 260, { power: 24 }), mkShape('rect', 'fan', 840, 800, 90, 260, { power: 24 }));
+    for (const x of [240, 640, 1040]) s.push(mkShape('rect', 'finish', x, 925, 310, 24));
+    s.push(hazard('water', 'rect', 640, 986, 1280, 28));
+    return raceStage('Sky Pirates', 'scene-airship', 'wood', 1000, TOP, s, { floor: false });
+  },
 
   Survival: () =>
     mkStage("Don't Fall Out", [

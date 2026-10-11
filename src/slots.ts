@@ -86,7 +86,10 @@ export class SlotGame {
         this.counts[slot!]++;
         this.sim.settle(m, SAFE);
       } else {
-        if (zone) this.fx.push({ x: m.x, y: m.y, e: m.e, at: this.clock });
+        if (zone) {
+          const p = this.sim.pose(zone);
+          this.fx.push({ x: m.x, y: m.y, e: m.e, at: this.clock, k: zone.fate, tx: p.x, ty: p.y });
+        }
         this.sim.settle(m, OUT);
         this.lost++;
       }
