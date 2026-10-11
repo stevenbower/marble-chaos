@@ -1,4 +1,4 @@
-export type Kind = 'rect' | 'circle' | 'tri' | 'cross' | 'arc' | 'poly' | 'zig' | 'star';
+export type Kind = 'rect' | 'circle' | 'tri' | 'cross' | 'arc' | 'poly' | 'zig' | 'star' | 'lift';
 /** grow/shrink resize marbles passing through, fan pushes them along its arrow, portals come in pairs. */
 export type Role = 'solid' | 'finish' | 'kill' | 'spawn' | 'grow' | 'shrink' | 'fan' | 'portal';
 
@@ -27,6 +27,7 @@ export interface Shape {
   pulseT?: number; // ...once every this many seconds
   free?: boolean; // pinned at its centre but free to swing (seesaw, pinwheel)
   power?: number; // fan strength
+  belt?: number; // boxes: conveyor speed along the box, units/s (negative runs the other way); lifts: shelf speed
 }
 
 export interface Stage {
@@ -67,6 +68,7 @@ export interface Project {
   slotLabels?: string; // one slot per character, or comma-separated names
   slotBalls?: number; // marbles dropped per round in slots mode
   seed: number;
+  seedFixed?: boolean; // use `seed` so runs repeat exactly; otherwise every level draws a fresh seed from the clock
 }
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
@@ -78,6 +80,9 @@ export function mkShape(kind: Kind, role: Role, x: number, y: number, w: number,
 export function mkStage(name: string, shapes: Shape[] = [], extra: Partial<Stage> = {}): Stage {
   return { id: uid(), name, w: 1280, h: 720, walls: true, gravity: 1, bg: '#000000', bgTex: 'grid', skin: 'steel', elim: 25, elimPct: true, timeLimit: 60, shapes, ...extra };
 }
+
+/** The random source for one level: repeatable when the project pins its seed, otherwise different every time. */
+export const levelRng = (p: Project, round: number) => mulberry32(p.seedFixed ? p.seed + round * 7919 : (Date.now() ^ (Math.random() * 2 ** 32)) >>> 0);
 
 export function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -116,6 +121,8 @@ export const BACKDROPS: [string, string][] = [
   ['scene-pirate', 'Pirate Cove'], ['scene-robot', 'Robot Workshop'], ['scene-farm', 'Farm'], ['scene-castle', 'Fairy Castle'],
   ['scene-spooky', 'Spooky Night'], ['scene-desert', 'Desert'], ['scene-circus', 'Circus'], ['scene-garden', 'Bug Garden'],
   ['scene-sky', 'Cloud Kingdom'], ['scene-toys', 'Playroom'],
+  ['scene-cookie', 'Cookie Bakery'], ['scene-mine', 'Gold Mine'], ['scene-canyon', 'Canyon'], ['scene-icecream', 'Ice Cream Parlour'],
+  ['scene-mill', 'Watermill'],
 ];
 
 /** Ready-made marble designs; textures live in public/marbles. */

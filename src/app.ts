@@ -121,7 +121,7 @@ function renderLeft() {
     <h4>Obstacles</h4>
     <div class="pal">${add('▬ Wall', 'wall')}${add('● Peg', 'peg')}${add('▲ Wedge', 'wedge')}${add('✚ Spinner', 'spinner')}${add('◠ Arc', 'arc')}${add('⬠ Polygon', 'polygon')}${add('★ Star', 'star')}${add('〰 Zigzag', 'zigzag')}</div>
     <h4>Lively bits</h4>
-    <div class="pal">${add('◉ Bumper', 'bumper')}${add('▬ Trampoline', 'trampoline')}${add('⚖ Seesaw', 'seesaw')}${add('✣ Pinwheel', 'pinwheel')}${add('⇄ Slider', 'slider')}${add('◎ Pulser', 'pulser')}</div>
+    <div class="pal">${add('◉ Bumper', 'bumper')}${add('▬ Trampoline', 'trampoline')}${add('⚖ Seesaw', 'seesaw')}${add('✣ Pinwheel', 'pinwheel')}${add('⇄ Slider', 'slider')}${add('◎ Pulser', 'pulser')}${add('➠ Conveyor', 'conveyor')}${add('⇪ Bucket lift', 'lift')}</div>
     <h4>Zones</h4>
     <div class="pal">${add('Finish', 'finish')}${add('Eliminate', 'kill')}${add('Spawn area', 'spawn')}${add('＋ Grow', 'grow')}${add('－ Shrink', 'shrink')}${add('⇧ Fan', 'fan')}${add('◍ Portals', 'portal')}</div>
     <p class="hint">${
@@ -152,7 +152,7 @@ function propsHtml() {
     <p class="hint">Marbles are safe when they reach a <b style="color:#1fe01f">finish</b> zone. A stage ends once enough are safe (the stragglers are eliminated), or once enough have hit an <b style="color:#e01212">eliminate</b> zone or fallen off the stage. Set eliminate to 1 for a "last one out" race.</p>`;
   }
   const round = isRound(s), zone = s.role !== 'solid', solid = !zone;
-  const title: Record<Kind, string> = { rect: 'Box', circle: 'Circle', tri: 'Wedge', cross: 'Spinner', arc: 'Arc', poly: 'Polygon', zig: 'Zigzag', star: 'Star' };
+  const title: Record<Kind, string> = { rect: 'Box', circle: 'Circle', tri: 'Wedge', cross: 'Spinner', arc: 'Arc', poly: 'Polygon', zig: 'Zigzag', star: 'Star', lift: 'Bucket lift' };
   const roles: [Role, string][] = [['solid', 'Solid obstacle'], ['finish', 'Finish zone (safe)'], ['kill', 'Eliminate zone'], ['spawn', 'Spawn area'], ['grow', 'Grow zone (bigger marbles)'], ['shrink', 'Shrink zone (smaller marbles)'], ['fan', 'Fan (blows along its arrows)'], ['portal', 'Portal (pairs up in order)']];
   return `<h4>${title[s.kind]}</h4><div class="grid">
     ${pickList('shape', 'role', 'Acts as', roles, s.role)}
@@ -161,8 +161,10 @@ function propsHtml() {
     ${num('shape', 'rot', 'Rotation°', s.rot)}
     ${zone ? '' : num('shape', 'bounce', 'Bounciness', s.bounce, 0.1)}
     ${s.role === 'fan' ? num('shape', 'power', 'Fan power', s.power ?? 40, 5) : ''}
+    ${solid && s.kind === 'rect' ? num('shape', 'belt', 'Conveyor speed (0 = off)', s.belt ?? 0, 10) : ''}
+    ${s.kind === 'lift' ? num('shape', 'belt', 'Lift speed', s.belt ?? 120, 10) + num('shape', 'skew', 'Tips out (-1 left, 1 right)', s.skew, 1) : ''}
     ${s.kind === 'cross' || s.kind === 'arc' || s.kind === 'zig' ? num('shape', 't', 'Thickness', s.t) : ''}
-    ${s.kind === 'cross' || s.kind === 'zig' || s.kind === 'star' ? num('shape', 'arms', s.kind === 'cross' ? 'Arms' : s.kind === 'star' ? 'Points' : 'Strokes', s.arms) : ''}
+    ${s.kind === 'cross' || s.kind === 'zig' || s.kind === 'star' || s.kind === 'lift' ? num('shape', 'arms', s.kind === 'cross' ? 'Arms' : s.kind === 'star' ? 'Points' : s.kind === 'lift' ? 'Shelves' : 'Strokes', s.arms) : ''}
     ${s.kind === 'arc' ? num('shape', 'sweep', 'Sweep°', s.sweep, 5) : ''}
     ${s.kind === 'tri' ? num('shape', 'skew', 'Apex (-1..1)', s.skew, 0.25) : ''}
     ${s.role === 'spawn' ? '' : pickList('shape', 'skin', 'Material', [['', 'Automatic'], ...SKINS], s.skin ?? '')}
@@ -190,14 +192,15 @@ function marblesHtml() {
         slots
           ? `<label class="wide">Slots (letters, or names split by commas)<input data-t="project" data-k="slotLabels" value="${esc(p.slotLabels ?? ALPHABET)}"></label>
              ${num('project', 'slotBalls', 'Marbles per round', p.slotBalls ?? 200, 10, 'wide')}
-             <button data-act="slot-levels" class="wide">Load the six themed levels</button>`
+             <button data-act="slot-levels" class="wide">Load all the themed levels</button>`
           : ''
       }
     </div>
     ${slots ? `<p class="hint">Every stage gets a strip of slots along the floor. Each round the slot that catches the fewest marbles is eliminated, until one is left. The entrants below only set what the marbles look like.</p>` : ''}`;
   return `${game}<h4>Marbles</h4><div class="grid">
       ${slots ? '' : num('project', 'perEntrant', 'Per entrant', p.perEntrant)}${num('project', 'radius', 'Radius', p.radius)}
-      ${num('project', 'marbleBounce', 'Bounciness', p.marbleBounce, 0.1)}${num('project', 'seed', 'Random seed', p.seed)}
+      ${num('project', 'marbleBounce', 'Bounciness', p.marbleBounce, 0.1)}${p.seedFixed ? num('project', 'seed', 'Seed', p.seed) : ''}
+      ${check('project', 'seedFixed', 'Fixed seed (every run plays out the same)', !!p.seedFixed)}
       ${slots ? '' : check('project', 'loop', 'Repeat stages until one is left', p.loop)}
     </div>
     <h4>Entrants (${p.entrants.length})</h4>
@@ -286,6 +289,8 @@ const PRESETS: Record<string, Preset> = {
   pinwheel: ['cross', 'solid', 190, 190, { free: true, t: 14, arms: 3 }],
   slider: ['rect', 'solid', 180, 20, { mx: 160, mt: 3 }],
   pulser: ['circle', 'solid', 60, 60, { pulse: 0.5, pulseT: 2 }],
+  conveyor: ['rect', 'solid', 320, 22, { belt: 150 }],
+  lift: ['lift', 'solid', 150, 420, { arms: 4, belt: 140, skew: 1 }],
   finish: ['rect', 'finish', 240, 24],
   kill: ['rect', 'kill', 240, 24],
   spawn: ['rect', 'spawn', 400, 100],
@@ -617,7 +622,7 @@ const actions: Record<string, (el: HTMLElement) => void> = {
   },
   'poly-done': closePoly,
   'poly-cancel': cancelPoly,
-  'slot-levels': () => loadSlotLevels('Replace the current stages with the six themed levels? Undo brings them back.'),
+  'slot-levels': () => loadSlotLevels('Replace the current stages with all the themed levels? Undo brings them back.'),
   dup: duplicateSel,
   del: removeSel,
   front: () => reorder(true),
@@ -711,9 +716,9 @@ document.addEventListener('change', (e) => {
   commit();
   // Re-render only where the change alters what is shown, so tabbing between fields keeps focus.
   if (el.dataset.t === 'stage' && k === 'name') renderLeft();
-  if (k === 'mode' && project.mode === 'slots') loadSlotLevels('Swap in the six themed levels built for the slot strip?\n\nThe stock stages funnel marbles into a few slots. Cancel keeps your stages; Undo brings them back.');
+  if (k === 'mode' && project.mode === 'slots') loadSlotLevels('Swap in the themed levels built for the slot strip?\n\nThe stock stages funnel marbles into a few slots. Cancel keeps your stages; Undo brings them back.');
   if (k === 'mode') $<HTMLSelectElement>('#mode').value = project.mode ?? 'race';
-  if (k === 'role' || k === 'elimPct' || k === 'skin' || k === 'mode' || k === 'free') renderRight();
+  if (k === 'role' || k === 'elimPct' || k === 'skin' || k === 'mode' || k === 'free' || k === 'seedFixed') renderRight();
 });
 
 // ---------- canvas ----------

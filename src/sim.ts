@@ -1,5 +1,5 @@
 import RAPIER from '@dimforge/rapier2d-compat';
-import { D2R, boxH, hit, polyPts, starPts, triPts, triangulate, zigPts } from './geom';
+import { D2R, LIFT_TILT, boxH, hit, liftShelfW, liftShelfX, liftShelves, liftSide, liftWalls, polyPts, starPts, toWorld, triPts, triangulate, zigPts } from './geom';
 import type { Shape, Stage } from './model';
 
 export const SCALE = 50; // stage units per physics metre
@@ -69,6 +69,8 @@ function colliders(s: Shape): RAPIER.ColliderDesc[] {
       return triangulate(polyPts(s)).map(hull).filter((c) => c !== null);
     case 'star':
       return triangulate(starPts(s)).map(hull).filter((c) => c !== null);
+    case 'lift':
+      return liftWalls(s).map(([x, y, w, h]) => RAPIER.ColliderDesc.cuboid((w / 2) * k, (h / 2) * k).setTranslation(x * k, y * k));
     case 'zig': {
       const p = zigPts(s), out = [];
       for (let i = 0; i + 3 < p.length; i += 2) {
@@ -117,6 +119,8 @@ export class Sim {
   private movers: { s: Shape; body: RAPIER.RigidBody | null; cols: RAPIER.Collider[] }[] = [];
   private swingers: { s: Shape; body: RAPIER.RigidBody }[] = [];
   private specials: Shape[];
+  private belts: Shape[];
+  private lifts: { s: Shape; shelves: RAPIER.RigidBody[]; ys: number[] }[] = [];
   private portals: Shape[];
 
   constructor(public stage: Stage, public r: number, bounce: number, entrants: number[], rng: () => number, public slots = 0) {
@@ -127,6 +131,7 @@ export class Sim {
     this.zones = stage.shapes.filter((s) => s.role === 'kill' || (s.role === 'finish' && !slots));
     this.specials = stage.shapes.filter((s) => s.role === 'grow' || s.role === 'shrink' || s.role === 'fan' || s.role === 'portal');
     this.portals = stage.shapes.filter((s) => s.role === 'portal');
+    this.belts = stage.shapes.filter((s) => s.role === 'solid' && s.kind === 'rect' && !!s.belt);
 
     for (const s of stage.shapes) {
       if (s.role === 'spawn') continue;
@@ -145,6 +150,18 @@ export class Sim {
         if (s.bounce > 1) c.setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Max);
         return this.world.createCollider(c, body);
       });
+      if (s.kind === 'lift') {
+        // the shelves are separate bodies carried up the shaft
+        const ys = liftShelves(s, 0), a = s.rot * D2R;
+        const shelves = ys.map((y) => {
+          const [x, wy] = toWorld(s, liftShelfX(s), y, a);
+          const b = this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(x * k, wy * k).setRotation(a + liftSide(s) * LIFT_TILT));
+          this.world.createCollider(RAPIER.ColliderDesc.cuboid((liftShelfW(s) / 2) * k, 4 * k).setFriction(0.3).setRestitution(0), b);
+          return b;
+        });
+        this.lifts.push({ s, shelves, ys });
+        continue;
+      }
       if (s.free) {
         // pinned through its centre to a fixed point: marbles tip and spin it
         const pin = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(s.x * k, s.y * k));
@@ -181,12 +198,19 @@ export class Sim {
     order.forEach((e, i) => {
       const [x, y] = cells[i];
       const body = this.world.createRigidBody(
-        RAPIER.RigidBodyDesc.dynamic().setTranslation((x + rng() - 0.5) * k, y * k).setLinvel(rng() - 0.5, 0).setCcdEnabled(true),
+        // Never asleep: a dozing marble isn't woken when a lift shelf or slider it was leaning on moves away,
+        // and hangs there in mid-air.
+        RAPIER.RigidBodyDesc.dynamic().setTranslation((x + rng() - 0.5) * k, y * k).setLinvel(rng() - 0.5, 0).setCcdEnabled(true).setCanSleep(false),
       );
       const col = this.world.createCollider(RAPIER.ColliderDesc.ball(r * k).setRestitution(bounce).setFriction(0.1), body);
       this.marbles.push({ e, body, col, x, y, a: 0, r, zid: null, state: LIVE });
     });
     this.live = this.marbles.length;
+  }
+
+  /** Current shelf heights of a lift, in its own frame. */
+  shelves(s: Shape) {
+    return this.lifts.find((l) => l.s === s)?.ys ?? liftShelves(s, 0);
   }
 
   pose(s: Shape): Pose {
@@ -242,6 +266,16 @@ export class Sim {
       if (p.f !== 1 && s.kind === 'circle') cols[0].setRadius((s.w / 2) * p.f * k);
       else if (p.f !== 1) cols[0].setHalfExtents({ x: (s.w / 2) * p.f * k, y: (s.h / 2) * p.f * k });
     }
+    for (const lift of this.lifts) {
+      const ys = liftShelves(lift.s, this.time), a = lift.s.rot * D2R;
+      ys.forEach((y, i) => {
+        const [x, wy] = toWorld(lift.s, liftShelfX(lift.s), y, a), to = { x: x * k, y: wy * k };
+        // Returning to the bottom is a jump, not a sweep: moved the usual way it would swat everything in the shaft.
+        if (y > lift.ys[i]) lift.shelves[i].setTranslation(to, true);
+        else lift.shelves[i].setNextKinematicTranslation(to);
+      });
+      lift.ys = ys;
+    }
     this.world.step();
     for (const { s, body } of this.swingers) this.poses.set(s.id, { x: s.x, y: s.y, a: body.rotation(), f: 1 });
     const { w, h } = this.stage;
@@ -261,6 +295,13 @@ export class Sim {
       if (m.y > h + 3 * m.r || m.x < -100 || m.x > w + 100) {
         onZone(m, 'kill');
         continue;
+      }
+      for (const b of this.belts) {
+        // A marble resting on a conveyor is eased toward the belt's speed along it.
+        if (!this.inside(b, m, m.r + 3)) continue;
+        const a = this.pose(b).a, tx = Math.cos(a), ty = Math.sin(a), v = m.body.linvel();
+        const dv = (b.belt! / SCALE - (v.x * tx + v.y * ty)) * 0.2;
+        m.body.setLinvel({ x: v.x + tx * dv, y: v.y + ty * dv }, true);
       }
       const zone = this.zones.find((z) => this.inside(z, m, m.r * 0.5));
       if (zone) onZone(m, zone.role as 'finish' | 'kill', zone);

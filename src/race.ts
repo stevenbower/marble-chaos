@@ -1,5 +1,5 @@
 import type { Project } from './model';
-import { mulberry32 } from './model';
+import { levelRng } from './model';
 import { DT, LIVE, OUT, SAFE, Sim, type Fx, type Marble } from './sim';
 
 export interface Placing {
@@ -30,7 +30,7 @@ export class Race {
 
   constructor(public p: Project, start: number, public single: boolean) {
     this.counts = p.entrants.map(() => Math.max(1, Math.round(p.perEntrant)));
-    this.rng = mulberry32(p.seed);
+    this.rng = levelRng(p, 0);
     this.begin(start);
   }
 
@@ -44,6 +44,7 @@ export class Race {
   private begin(i: number) {
     this.stageIdx = i;
     this.round++;
+    this.rng = levelRng(this.p, this.round);
     const ents: number[] = [];
     this.counts.forEach((c, e) => {
       for (let k = 0; k < c; k++) ents.push(e);

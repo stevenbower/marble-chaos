@@ -32,6 +32,32 @@ export function starPts(s: Shape) {
   return p;
 }
 
+const LIFT_WALL = 10, LIFT_DOOR = 96, LIFT_DIP = 36;
+export const LIFT_TILT = 11 * D2R;
+/** Which side a bucket lift tips its marbles out of: 1 = right, -1 = left. */
+export const liftSide = (s: Shape) => (s.skew < 0 ? -1 : 1);
+/**
+ * The fixed parts of a bucket lift as [cx, cy, w, h] boxes in its own frame: a back plate on the side it tips out
+ * of, stopping short of the top so marbles can roll off there, and a floor the shelves rise through. The other side
+ * is open from top to bottom. A doorway there would be a trap: a shelf lifts a marble that is half way in, pins it
+ * under the top of the doorway, and the queue behind never gets through.
+ */
+export function liftWalls(s: Shape): number[][] {
+  const side = liftSide(s);
+  return [
+    [side * (s.w / 2 - LIFT_WALL / 2), LIFT_DOOR / 2, LIFT_WALL, s.h - LIFT_DOOR],
+    [0, s.h / 2 - LIFT_WALL / 2, s.w, LIFT_WALL],
+  ];
+}
+/** Shelves run from the open edge to the back plate, tilted toward the plate so their load leans on it. */
+export const liftShelfW = (s: Shape) => s.w - LIFT_WALL - 2;
+export const liftShelfX = (s: Shape) => (-liftSide(s) * (LIFT_WALL - 2)) / 2;
+/** Height of each shelf in the lift's frame, `t` seconds in; they climb, vanish at the top and return from under the floor. */
+export function liftShelves(s: Shape, t: number): number[] {
+  const n = Math.max(1, Math.round(s.arms)), L = s.h + LIFT_DIP, v = Math.abs(s.belt ?? 120) || 120;
+  return Array.from({ length: n }, (_, i) => s.h / 2 + LIFT_DIP - (((i * L) / n + t * v) % L));
+}
+
 function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
   const dx = bx - ax, dy = by - ay, t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1)));
   return Math.hypot(px - ax - t * dx, py - ay - t * dy);
@@ -49,7 +75,7 @@ function inPoly(p: number[], x: number, y: number) {
 /** Point-in-shape test; `ang` is the shape's current rotation in radians, `pad` grows the shape. */
 export function hit(s: Shape, px: number, py: number, ang: number, pad = 0): boolean {
   const [lx, ly] = toLocal(s, px, py, ang);
-  if (s.role === 'spawn' || s.kind === 'rect') return Math.abs(lx) <= s.w / 2 + pad && Math.abs(ly) <= boxH(s) / 2 + pad;
+  if (s.role === 'spawn' || s.kind === 'rect' || s.kind === 'lift') return Math.abs(lx) <= s.w / 2 + pad && Math.abs(ly) <= boxH(s) / 2 + pad;
   switch (s.kind) {
     case 'circle':
       return lx * lx + ly * ly <= (s.w / 2 + pad) ** 2;

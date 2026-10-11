@@ -1,5 +1,5 @@
 import type { Project } from './model';
-import { mulberry32 } from './model';
+import { levelRng } from './model';
 import { DT, OUT, SAFE, Sim, type Fx } from './sim';
 
 export const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -35,7 +35,7 @@ export class SlotGame {
 
   constructor(public p: Project, start: number, public single: boolean) {
     this.labels = parseLabels(p.slotLabels);
-    this.rng = mulberry32(p.seed);
+    this.rng = levelRng(p, 0);
     this.begin(start);
   }
 
@@ -46,6 +46,7 @@ export class SlotGame {
   private begin(i: number) {
     this.stageIdx = i;
     this.round++;
+    this.rng = levelRng(this.p, this.round);
     this.counts = this.labels.map(() => 0);
     this.loser = -1;
     this.lost = 0;
@@ -79,15 +80,17 @@ export class SlotGame {
       this.lastScore = this.sim.time;
       this.dirty = true;
     });
-    // A few marbles always end up perched on something; once the flow has dried up, call the round.
-    const stalled = this.sim.time - this.lastScore > 4 && this.sim.time > 6;
+    // A few marbles always end up perched on something; once the flow has dried up, call the round. Levels with
+    // long routes take a while to deliver the first marble, so nothing counts as dried up before then.
+    const scored = this.lost + this.counts.reduce((a, b) => a + b, 0) > 0;
+    const stalled = scored ? this.sim.time - this.lastScore > 8 : this.sim.time > 45;
     if (this.sim.live === 0 || stalled || this.sim.time >= (this.stage.timeLimit || 60)) this.judge();
   }
 
   private judge() {
     const min = Math.min(...this.counts);
     const tied = this.counts.flatMap((c, i) => (c === min ? [i] : []));
-    this.loser = tied[Math.floor(this.rng() * tied.length)]; // ties are settled by the seeded draw
+    this.loser = tied[Math.floor(this.rng() * tied.length)]; // ties are settled by a random draw
     this.phase = 'pause';
     this.pauseLeft = 3;
     this.dirty = true;

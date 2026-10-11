@@ -16,10 +16,45 @@ const slotStage = (name: string, scene: string, skin: string, shapes: Shape[]) =
     { timeLimit: 45, bgTex: scene, skin },
   );
 
+/**
+ * How a path level shares its single stream among the slots: a whirlwind (a fan whose direction keeps turning)
+ * throws each marble a different distance to the left or right, then two rows of pegs break up what lands.
+ * Nothing here is narrow, so a queue of marbles cannot jam it. `y0` is where the stream arrives.
+ */
+function spreader(y0: number): Shape[] {
+  const s: Shape[] = [mkShape('circle', 'fan', 640, y0 + 150, 300, 300, { spin: 140, power: FAN })];
+  for (let x = 50; x <= 1240; x += 118) s.push(mkShape('circle', 'solid', x, y0 + 470, 26, 26, { bounce: 0.6 }));
+  for (let x = 109; x <= 1200; x += 118) s.push(mkShape('circle', 'solid', x, y0 + 540, 26, 26, { bounce: 0.6 }));
+  return s;
+}
+const FAN = 34;
+
+/**
+ * A tall stage whose machinery ends by dropping one stream down the middle, into the spreader. By default a chute
+ * ramp brings it in from the right wall and a backstop keeps it from overshooting; `direct` levels already deliver
+ * to the middle themselves.
+ */
+const pathStage = (name: string, scene: string, skin: string, y0: number, spawn: number[], shapes: Shape[], direct = false) =>
+  mkStage(
+    name,
+    [
+      mkShape('rect', 'spawn', spawn[0], spawn[1], spawn[2], spawn[3]),
+      ...shapes,
+      ...(direct ? [] : [mkShape('rect', 'solid', 1010, y0 - 95, 600, 20, { rot: -8 }), mkShape('rect', 'solid', 560, y0 - 50, 12, 120)]),
+      ...spreader(y0),
+      mkShape('tri', 'solid', 12, y0 + 595, 24, 70, { skew: -1 }),
+      mkShape('tri', 'solid', W - 12, y0 + 595, 24, 70, { skew: 1 }),
+    ],
+    { h: y0 + 730, timeLimit: 150, bgTex: scene, skin },
+  );
+
+export const PATH_LEVELS = ['Cookie Conveyor', 'Gold Mine Lift', 'Canyon Rapids', 'Ice Cream Climb', 'Watermill Wheel'];
+
 /** The stages loaded when letter slots is switched on. */
 export const SLOT_LEVELS = [
   'Candy Drop', 'Bubble Reef', 'Asteroid Belt', 'Jungle Tumble', 'Snowball Slide', 'Volcano Run', 'Pirate Plunder', 'Robot Works',
   'Barnyard Bounce', 'Castle Stars', 'Spooky Swirl', 'Pyramid Tumble', 'Big Top Bumpers', 'Bug Garden', 'Cloud Hop', 'Toy Box',
+  ...PATH_LEVELS,
 ];
 
 export const TEMPLATES: Record<string, () => Stage> = {
@@ -252,6 +287,47 @@ export const TEMPLATES: Record<string, () => Stage> = {
     for (let x = 100, i = 0; x <= 1180; x += 120, i++) s.push(mkShape('circle', 'solid', x, 570, 28, 28, { bounce: 0.8, color: BLOCKS[i % 5] }));
     return slotStage('Toy Box', 'scene-toys', 'rainbow', s);
   },
+
+  // ----- path levels for letter slots: a route of channels, belts and lifts, then a splitter that fans the stream out -----
+  'Cookie Conveyor': () =>
+    pathStage('Cookie Conveyor', 'scene-cookie', 'wood', 670, [300, 70, 480, 100], [
+      mkShape('rect', 'solid', 450, 230, 900, 22, { belt: 170 }),
+      mkShape('rect', 'solid', 830, 350, 900, 22, { belt: -170 }),
+      mkShape('rect', 'solid', 450, 470, 900, 22, { belt: 170 }),
+    ]),
+
+  'Gold Mine Lift': () =>
+    pathStage('Gold Mine Lift', 'scene-mine', 'stone', 770, [250, 70, 440, 100], [
+      mkShape('rect', 'solid', 280, 541, 570, 20, { rot: 10 }), // hopper floor, piling marbles against the open side of the lift
+      mkShape('lift', 'solid', 640, 380, 150, 440, { arms: 4, belt: 150, skew: 1 }),
+      mkShape('rect', 'solid', 955, 285, 500, 20, { rot: 8 }),
+    ]),
+
+  'Canyon Rapids': () =>
+    pathStage('Canyon Rapids', 'scene-canyon', 'sand', 860, [250, 70, 440, 100], [
+      mkShape('rect', 'solid', 500, 230, 1000, 20, { rot: 6 }),
+      mkShape('rect', 'solid', 780, 420, 1000, 20, { rot: -6 }),
+      mkShape('rect', 'solid', 500, 610, 1000, 20, { rot: 6 }),
+      // boulders that swell and squeeze the channel
+      mkShape('circle', 'solid', 560, 138, 50, 50, { pulse: 0.35, pulseT: 2.4 }),
+      mkShape('circle', 'solid', 720, 338, 50, 50, { pulse: 0.35, pulseT: 3 }),
+      mkShape('circle', 'solid', 560, 518, 50, 50, { pulse: 0.35, pulseT: 2 }),
+    ]),
+
+  'Ice Cream Climb': () =>
+    pathStage('Ice Cream Climb', 'scene-icecream', 'candy', 700, [250, 70, 440, 100], [
+      mkShape('rect', 'solid', 310, 460, 690, 22, { rot: -25.8, belt: 190 }), // uphill belt
+      mkShape('rect', 'solid', 920, 420, 560, 20, { rot: 9 }),
+    ]),
+
+  'Watermill Wheel': () =>
+    pathStage('Watermill Wheel', 'scene-mill', 'wood', 640, [640, 80, 900, 110], [
+      mkShape('rect', 'solid', 290, 230, 600, 20, { rot: 11.5 }),
+      mkShape('rect', 'solid', 990, 230, 600, 20, { rot: -11.5 }),
+      mkShape('cross', 'solid', 640, 450, 300, 300, { t: 12, arms: 8, spin: 70 }), // the wheel meters marbles through
+      mkShape('arc', 'solid', 640, 450, 334, 334, { t: 12, sweep: 136, rot: 180 }),
+      mkShape('arc', 'solid', 640, 450, 334, 334, { t: 12, sweep: 136, rot: 0 }),
+    ], true),
 
   Survival: () =>
     mkStage("Don't Fall Out", [

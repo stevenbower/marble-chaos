@@ -1,4 +1,4 @@
-import { D2R, boxH, polyPts, starPts, toWorld, triPts, zigPts } from './geom';
+import { D2R, LIFT_TILT, boxH, liftShelfW, liftShelfX, liftShelves, liftSide, liftWalls, polyPts, starPts, toWorld, triPts, zigPts } from './geom';
 import type { Project, Shape, Stage } from './model';
 import type { Race } from './race';
 import { LIVE, SLOT_H, SLOT_MOUTH, type Fx, type Pose, type Sim } from './sim';
@@ -81,6 +81,9 @@ function trace(g: CanvasRenderingContext2D, s: Shape): 'fill' | 'band' {
     case 'star':
       path(starPts(s));
       break;
+    case 'lift':
+      for (const [x, y, w, h] of liftWalls(s)) g.rect(x - w / 2, y - h / 2, w, h);
+      break;
     case 'cross':
       g.arc(0, 0, s.t * 0.8, 0, Math.PI * 2);
       for (let i = 0; i < s.arms; i++) {
@@ -108,10 +111,9 @@ function drawSpecial(g: CanvasRenderingContext2D, s: Shape, now: number, pair: n
   if (s.role === 'fan') {
     const h = boxH(s);
     g.fillStyle = 'rgba(120,220,255,.16)';
-    g.fillRect(-s.w / 2, -h / 2, s.w, h);
+    trace(g, s);
+    g.fill();
     g.save();
-    g.beginPath();
-    g.rect(-s.w / 2, -h / 2, s.w, h);
     g.clip();
     g.strokeStyle = 'rgba(190,240,255,.75)';
     g.lineWidth = 4;
@@ -169,7 +171,7 @@ function drawSpecial(g: CanvasRenderingContext2D, s: Shape, now: number, pair: n
   g.stroke();
 }
 
-function drawShape(g: CanvasRenderingContext2D, s: Shape, pose: Pose, edit: boolean, stage: Stage, now: number, pair: number) {
+function drawShape(g: CanvasRenderingContext2D, s: Shape, pose: Pose, edit: boolean, stage: Stage, now: number, pair: number, shelves?: number[]) {
   const col = roleColor(s);
   if (edit && (s.mx || s.my)) {
     // where a slider travels
@@ -204,6 +206,38 @@ function drawShape(g: CanvasRenderingContext2D, s: Shape, pose: Pose, edit: bool
   }
   if (s.role === 'grow' || s.role === 'shrink' || s.role === 'fan' || s.role === 'portal') {
     drawSpecial(g, s, now, pair);
+    g.restore();
+    return;
+  }
+  if (s.kind === 'rect' && s.belt && s.role === 'solid') {
+    // conveyor: a rubber belt on two rollers, its treads running the way it carries
+    const hw = s.w / 2, hh = s.h / 2;
+    g.fillStyle = '#23252c';
+    g.strokeStyle = 'rgba(0,0,0,.75)';
+    g.lineWidth = 4;
+    g.beginPath();
+    g.roundRect(-hw, -hh, s.w, s.h, hh);
+    g.stroke();
+    g.fill();
+    g.save();
+    g.clip();
+    g.strokeStyle = '#8f96a3';
+    g.lineWidth = 3;
+    const gap = 26, off = (((now * s.belt) % gap) + gap) % gap, lean = Math.sign(s.belt) * hh * 0.7;
+    g.beginPath();
+    for (let x = -hw - gap + off; x < hw + gap; x += gap) {
+      g.moveTo(x - lean, -hh);
+      g.lineTo(x + lean, 0);
+      g.lineTo(x - lean, hh);
+    }
+    g.stroke();
+    g.restore();
+    g.fillStyle = '#c9ced8';
+    for (const x of [-hw + hh, hw - hh]) {
+      g.beginPath();
+      g.arc(x, 0, hh * 0.45, 0, Math.PI * 2);
+      g.fill();
+    }
     g.restore();
     return;
   }
@@ -248,6 +282,22 @@ function drawShape(g: CanvasRenderingContext2D, s: Shape, pose: Pose, edit: bool
     g.stroke();
     g.lineWidth = 1.5;
     g.strokeStyle = 'rgba(255,255,255,.4)';
+    g.stroke();
+  }
+  if (s.kind === 'lift') {
+    // the shelves, clipped to the shaft so they slip out of sight at the top and under the floor
+    g.beginPath();
+    g.rect(-s.w / 2, -s.h / 2, s.w, s.h);
+    g.clip();
+    g.strokeStyle = '#ffd23f';
+    g.lineWidth = 8;
+    g.lineCap = 'round';
+    const hw = liftShelfW(s) / 2, dx = Math.cos(LIFT_TILT) * hw, dy = Math.sin(LIFT_TILT) * hw * liftSide(s);
+    g.beginPath();
+    for (const y of shelves ?? liftShelves(s, 0)) {
+      g.moveTo(liftShelfX(s) - dx, y - dy);
+      g.lineTo(liftShelfX(s) + dx, y + dy);
+    }
     g.stroke();
   }
   if (s.free) {
@@ -377,7 +427,7 @@ export function drawScene(
   for (const s of stage.shapes) {
     if (o.sim && o.slots && s.role === 'finish') continue; // finish zones sit out when slots do the scoring
     const pose: Pose = o.sim ? o.sim.pose(s) : { x: s.x, y: s.y, a: s.rot * D2R, f: 1 };
-    drawShape(g, s, pose, edit, stage, now, s.role === 'portal' ? portals.indexOf(s) >> 1 : 0);
+    drawShape(g, s, pose, edit, stage, now, s.role === 'portal' ? portals.indexOf(s) >> 1 : 0, s.kind === 'lift' ? o.sim?.shelves(s) : undefined);
   }
 
   if (o.sim) {
