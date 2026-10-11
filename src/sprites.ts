@@ -36,6 +36,7 @@ function disc(size: number) {
 
 function paint(c: HTMLCanvasElement, e: Entrant, img?: HTMLImageElement) {
   const g = c.getContext('2d')!, r = SIZE / 2;
+  litCache.delete(e.id);
   g.clearRect(0, 0, SIZE, SIZE);
   g.save();
   g.beginPath();
@@ -111,13 +112,42 @@ function gloss() {
   return c;
 }
 
-export function drawMarble(g: CanvasRenderingContext2D, e: Entrant, x: number, y: number, r: number, angle = 0) {
+const LIT = 40;
+const litCache = new Map<string, HTMLCanvasElement>();
+/** Face and shine baked into one small picture, for marbles too small on screen to show their spin. */
+function lit(e: Entrant) {
+  let c = litCache.get(e.id);
+  if (!c) {
+    const face = sprite(e); // may repaint, so fetch it before caching
+    litCache.set(e.id, (c = disc(LIT)));
+    const g = c.getContext('2d')!;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(face, 0, 0, LIT, LIT);
+    if (e.type !== 'marble') g.drawImage(gloss(), 0, 0, LIT, LIT);
+  }
+  return c;
+}
+
+/** A whole marble in a single draw call: what keeps a crowd of thousands cheap. */
+export function drawTiny(g: CanvasRenderingContext2D, e: Entrant, x: number, y: number, r: number) {
+  g.drawImage(lit(e), x - r, y - r, 2 * r, 2 * r);
+}
+
+export function drawFace(g: CanvasRenderingContext2D, e: Entrant, x: number, y: number, r: number, angle = 0) {
   g.save();
   g.translate(x, y);
   g.rotate(angle);
   g.drawImage(sprite(e), -r, -r, 2 * r, 2 * r);
   g.restore();
+}
+
+export function drawGloss(g: CanvasRenderingContext2D, e: Entrant, x: number, y: number, r: number) {
   if (e.type !== 'marble') g.drawImage(gloss(), x - r, y - r, 2 * r, 2 * r); // the designed marbles carry their own shine
+}
+
+export function drawMarble(g: CanvasRenderingContext2D, e: Entrant, x: number, y: number, r: number, angle = 0) {
+  drawFace(g, e, x, y, r, angle);
+  drawGloss(g, e, x, y, r);
 }
 
 export const thumb = (e: Entrant) =>

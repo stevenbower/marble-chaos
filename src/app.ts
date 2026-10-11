@@ -895,6 +895,9 @@ window.addEventListener('keydown', (e) => {
 let lastT = performance.now(), acc = 0, lastBoard = 0;
 const raceCam: Cam = { x: 0, y: 0, z: 1 };
 
+// Running totals for profiling from the console: frames drawn, physics steps, and ms spent in each.
+const perf = ((window as any).__perf = { frames: 0, steps: 0, sim: 0, draw: 0 });
+
 function frame(now: number) {
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
@@ -902,10 +905,13 @@ function frame(now: number) {
   if (race) {
     if (!paused) {
       acc += dt * speed;
-      for (let n = 0; acc >= DT && n < 48; n++, acc -= DT) race.tick();
+      const t0 = performance.now();
+      for (let n = 0; acc >= DT && n < 48; n++, acc -= DT) race.tick(), perf.steps++;
+      perf.sim += performance.now() - t0;
       if (acc >= DT) acc = 0; // too slow to keep up; drop the backlog
     }
     fitTo(race.stage, raceCam, 0);
+    const t1 = performance.now();
     if (race instanceof SlotGame) {
       const slots = race.phase === 'done' && !race.single ? undefined : { labels: race.labels, counts: race.counts, loser: race.loser };
       drawScene(g, cw, ch, raceCam, race.stage, project, { sim: race.sim, fx: race.fx, clock: race.clock, slots });
@@ -914,6 +920,8 @@ function frame(now: number) {
       drawScene(g, cw, ch, raceCam, race.stage, project, { sim: race.sim, fx: race.fx, clock: race.clock });
       drawHud(g, cw, ch, race, project);
     }
+    perf.draw += performance.now() - t1;
+    perf.frames++;
     if (race.dirty && now - lastBoard > 200) {
       race.dirty = false;
       lastBoard = now;

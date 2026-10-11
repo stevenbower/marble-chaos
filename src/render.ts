@@ -1,9 +1,9 @@
 import { D2R, LIFT_TILT, boxH, liftShelfW, liftShelfX, liftShelves, liftSide, liftWalls, polyPts, starPts, toWorld, triPts, zigPts } from './geom';
 import type { Project, Shape, Stage } from './model';
 import type { Race } from './race';
-import { LIVE, SLOT_H, SLOT_MOUTH, type Fx, type Pose, type Sim } from './sim';
+import { LIVE, SLOT_H, SLOT_MOUTH, type Fx, type Marble, type Pose, type Sim } from './sim';
 import type { SlotGame } from './slots';
-import { drawMarble, loadImage, sceneUrl, spritesReady, texUrl } from './sprites';
+import { drawFace, drawGloss, drawMarble, drawTiny, loadImage, sceneUrl, spritesReady, texUrl } from './sprites';
 
 export interface Cam {
   x: number;
@@ -21,6 +21,7 @@ export function skinOf(s: Shape, stage: Stage) {
   return s.skin || (s.role === 'finish' ? 'finish' : s.role === 'kill' ? 'lava' : stage.skin || 'steel');
 }
 
+const TINY = 11; // on-screen marble radius, in CSS pixels, below which spin isn't drawn
 const TILE = 256; // stage units one texture tile covers
 const patterns = new Map<string, CanvasPattern | null>();
 function pattern(g: CanvasRenderingContext2D, key: string): CanvasPattern | null {
@@ -32,6 +33,32 @@ function pattern(g: CanvasRenderingContext2D, key: string): CanvasPattern | null
   p?.setTransform(new DOMMatrix().scale(TILE / img.naturalWidth));
   patterns.set(key, p);
   return p;
+}
+
+let tiled: { key: string; c: HTMLCanvasElement } | null = null;
+/**
+ * Lay a tiled material across the stage. Filling the screen with a scaled pattern every frame is slow on big
+ * displays, so the result is kept as a picture at screen resolution and only redone when the view changes.
+ */
+function drawTiled(g: CanvasRenderingContext2D, stage: Stage, paint: CanvasPattern) {
+  const t = g.getTransform(), k = Math.hypot(t.a, t.b), w = Math.ceil(stage.w * k), h = Math.ceil(stage.h * k);
+  if (w > 4096 || h > 4096) {
+    g.fillStyle = paint; // zoomed far in: too big to keep
+    g.fillRect(0, 0, stage.w, stage.h);
+    return;
+  }
+  const key = `${stage.bgTex}|${w}|${h}`;
+  if (tiled?.key !== key) {
+    const c = tiled?.c ?? document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const x = c.getContext('2d')!;
+    x.scale(w / stage.w, h / stage.h);
+    x.fillStyle = paint;
+    x.fillRect(0, 0, stage.w, stage.h);
+    tiled = { key, c };
+  }
+  g.drawImage(tiled.c, 0, 0, stage.w, stage.h);
 }
 
 /** Paint a full-stage illustration, cropped to cover the stage. */
@@ -270,11 +297,17 @@ function drawShape(g: CanvasRenderingContext2D, s: Shape, pose: Pose, edit: bool
   }
   g.fillStyle = paint ?? col;
   if (textured && glow) {
-    g.shadowColor = glow;
-    g.shadowBlur = 18;
+    // A halo of soft strokes: shadowBlur costs a full-width blur pass per shape per frame, which drags big screens down.
+    g.lineJoin = 'round';
+    g.strokeStyle = glow;
+    for (const [w, a] of [[30, 0.1], [20, 0.14], [11, 0.2]]) {
+      g.lineWidth = w;
+      g.globalAlpha = a;
+      g.stroke();
+    }
+    g.globalAlpha = 1;
   }
   g.fill();
-  g.shadowBlur = 0;
   if (textured) {
     g.lineJoin = 'round';
     g.lineWidth = 4;
@@ -411,10 +444,7 @@ export function drawScene(
   g.fillRect(0, 0, stage.w, stage.h);
   const backdrop = stage.bgTex && !stage.bgTex.startsWith('scene-') ? pattern(g, stage.bgTex) : null;
   if (stage.bgTex?.startsWith('scene-')) drawSceneBackdrop(g, stage.bgTex, stage);
-  if (backdrop) {
-    g.fillStyle = backdrop;
-    g.fillRect(0, 0, stage.w, stage.h);
-  }
+  if (backdrop) drawTiled(g, stage, backdrop);
   if (edit) {
     g.strokeStyle = 'rgba(255,255,255,.06)';
     g.lineWidth = 1 / cam.z;
@@ -431,10 +461,25 @@ export function drawScene(
   }
 
   if (o.sim) {
+    // Marbles under TINY pixels in radius are too small to show their spin: those go down as one pre-lit
+    // picture each. The rest get faces first, then the shine over all of them, so the browser can batch the draws.
+    const t = g.getTransform(), px = Math.hypot(t.a, t.b) / (window.devicePixelRatio || 1), big: Marble[] = [];
     for (const m of o.sim.marbles) {
       if (!m.body) continue;
+      if (m.r * px > TINY) {
+        big.push(m);
+        continue;
+      }
       g.globalAlpha = m.state === LIVE ? 1 : 0.8;
-      drawMarble(g, project.entrants[m.e], m.x, m.y, m.r, m.a);
+      drawTiny(g, project.entrants[m.e], m.x, m.y, m.r);
+    }
+    for (const m of big) {
+      g.globalAlpha = m.state === LIVE ? 1 : 0.8;
+      drawFace(g, project.entrants[m.e], m.x, m.y, m.r, m.a);
+    }
+    for (const m of big) {
+      g.globalAlpha = m.state === LIVE ? 1 : 0.8;
+      drawGloss(g, project.entrants[m.e], m.x, m.y, m.r);
     }
   }
   if (o.sim) g.globalAlpha = 1;
