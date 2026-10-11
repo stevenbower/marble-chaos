@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#26262d" />
+    <title>Marble Chaos</title>
+  </head>
+  <body>
+    <div id="app">
+      <header id="top">
+        <b class="logo">◉<span class="wide-only"> Marble Chaos</span></b>
+        <button data-act="sheet" data-s="left" class="mob">☰ Build</button>
+        <button data-act="sheet" data-s="right" class="mob">⚙ Panel</button>
+        <input id="pname" data-t="project" data-k="name" title="Project name" />
+        <select id="mode" data-t="project" data-k="mode" title="Game mode">
+          <option value="race">Marble race</option><option value="slots">Letter slots</option>
+        </select>
+        <button data-act="run" class="primary" title="Run the whole tournament">▶ Run<span class="wide-only"> tournament</span></button>
+        <button data-act="test" title="Run only the stage being edited">▶ Test<span class="wide-only"> stage</span></button>
+        <button data-act="pause" title="Pause / resume (Space)">Pause</button>
+        <button data-act="stop" title="Back to the editor">■ Stop</button>
+        <select id="speed" title="Simulation speed">
+          <option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option>
+        </select>
+        <button data-act="full" title="Run full screen (Esc to leave)">⛶ Full screen</button>
+        <button data-act="rec" id="rec" title="Record the canvas to a .webm video">● Rec</button>
+        <span class="sp"></span>
+        <button data-act="undo" title="Undo (Ctrl+Z)">↶</button>
+        <button data-act="redo" title="Redo (Ctrl+Y)">↷</button>
+        <button data-act="fit" title="Fit stage to view">Fit</button>
+        <button data-act="export">Export</button>
+        <button data-act="import">Import</button>
+        <button data-act="new">New</button>
+      </header>
+      <aside id="left"></aside>
+      <main><canvas id="cv"></canvas><div id="fab"></div><div id="loading" hidden>Loading level…</div></main>
+      <aside id="right"></aside>
+    </div>
+    <dialog id="dlg"></dialog>
+    <input type="file" id="file" hidden />
+    <script type="module" src="/src/app.ts"></script>
+  </body>
+</html>
