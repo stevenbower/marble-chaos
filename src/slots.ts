@@ -24,7 +24,8 @@ export class SlotGame {
   lost = 0; // marbles that never reached a slot this round
   fx: Fx[] = [];
   sim!: Sim;
-  stageIdx = 0;
+  stageIdx = -1;
+  private bag: number[] = []; // levels not yet played this time through
   round = 0;
   phase: 'run' | 'pause' | 'done' = 'run';
   clock = 0;
@@ -36,7 +37,19 @@ export class SlotGame {
   constructor(public p: Project, start: number, public single: boolean) {
     this.labels = parseLabels(p.slotLabels);
     this.rng = levelRng(p, 0);
-    this.begin(start);
+    this.begin(single ? start : this.draw());
+  }
+
+  /** The next level, drawn at random; every level comes up once before any repeats. */
+  private draw() {
+    if (!this.bag.length) {
+      this.bag = this.p.stages.map((_, i) => i).filter((i) => i !== this.stageIdx || this.p.stages.length === 1);
+      for (let i = this.bag.length - 1; i > 0; i--) {
+        const j = Math.floor(this.rng() * (i + 1));
+        [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
+      }
+    }
+    return this.bag.pop()!;
   }
 
   get stage() {
@@ -110,6 +123,6 @@ export class SlotGame {
       this.phase = 'done';
       return;
     }
-    this.begin((this.stageIdx + 1) % this.p.stages.length);
+    this.begin(this.draw());
   }
 }

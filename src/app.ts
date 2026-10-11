@@ -19,7 +19,8 @@ function defaultProject(): Project {
   const codes = 'us gb fr de it es br ar mx ca jp kr cn in au za ng eg tr sa se no nl be pt gr pl ua ch ie nz cl'.split(' ');
   return {
     name: 'My Marble Race',
-    stages: ['Plinko', 'Funnel', 'Zigzag', 'Survival'].map((k) => TEMPLATES[k]()),
+    mode: 'slots',
+    stages: SLOT_LEVELS.map((k) => TEMPLATES[k]()),
     entrants: codes.map(flagEntrant),
     perEntrant: 1,
     radius: 14,
@@ -410,9 +411,11 @@ async function addLogos(files: File[]) {
   renderRight();
 }
 
-function loadSlotLevels(question: string) {
+const RACE_LEVELS = ['Plinko', 'Funnel', 'Zigzag', 'Survival'];
+
+function loadLevels(names: string[], question: string) {
   if (!confirm(question)) return;
-  project.stages = SLOT_LEVELS.map((t) => TEMPLATES[t]());
+  project.stages = names.map((t) => TEMPLATES[t]());
   stageIdx = 0;
   selId = null;
   commit();
@@ -622,7 +625,7 @@ const actions: Record<string, (el: HTMLElement) => void> = {
   },
   'poly-done': closePoly,
   'poly-cancel': cancelPoly,
-  'slot-levels': () => loadSlotLevels('Replace the current stages with all the themed levels? Undo brings them back.'),
+  'slot-levels': () => loadLevels(SLOT_LEVELS, 'Replace the current stages with all the themed levels? Undo brings them back.'),
   dup: duplicateSel,
   del: removeSel,
   front: () => reorder(true),
@@ -717,7 +720,10 @@ document.addEventListener('change', (e) => {
   commit();
   // Re-render only where the change alters what is shown, so tabbing between fields keeps focus.
   if (el.dataset.t === 'stage' && k === 'name') renderLeft();
-  if (k === 'mode' && project.mode === 'slots') loadSlotLevels('Swap in the themed levels built for the slot strip?\n\nThe stock stages funnel marbles into a few slots. Cancel keeps your stages; Undo brings them back.');
+  if (k === 'mode' && project.mode === 'slots') loadLevels(SLOT_LEVELS, 'Swap in the themed levels built for the slot strip?\n\nThe stock stages funnel marbles into a few slots. Cancel keeps your stages; Undo brings them back.');
+  // a marble race needs somewhere to finish, which the letter levels don't have
+  if (k === 'mode' && project.mode !== 'slots' && !project.stages.some((st) => st.shapes.some((sh) => sh.role === 'finish')))
+    loadLevels(RACE_LEVELS, 'Swap in the marble race stages?\n\nThe letter levels have no finish line. Cancel keeps your stages; Undo brings them back.');
   if (k === 'mode') $<HTMLSelectElement>('#mode').value = project.mode ?? 'race';
   if (k === 'role' || k === 'elimPct' || k === 'skin' || k === 'mode' || k === 'free' || k === 'seedFixed') renderRight();
 });
