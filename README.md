@@ -7,6 +7,10 @@ Design marble-race stages in the browser and run them as elimination tournaments
   each stage is played until every marble has finished or been lost.
 - **Letter slots** (the default): marbles pour into a strip of lettered slots; the letter that catches the fewest is out each round. Levels come up in random order.
 
+The app opens on a play screen: tap a game to start, and **Marbles** changes how the marbles look, how many there are,
+their size, bounce and speed. **Build levels** opens the editor, where the stage tools, import/export and the full
+settings live; levels built there show up on the play screen as **My Levels**.
+
 ## Develop
 
 ```sh

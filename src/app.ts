@@ -6,7 +6,7 @@ import { Race } from './race';
 import { drawHud, drawScene, drawSlotHud, handles, preload, type Cam } from './render';
 import { ALPHABET, SlotGame, parseLabels } from './slots';
 import { DT, initPhysics } from './sim';
-import { thumb } from './sprites';
+import { sceneUrl, thumb } from './sprites';
 import { RACE_LEVELS, SLOT_LEVELS, TEMPLATES } from './templates';
 
 const LS = 'marble-chaos:v1';
@@ -15,8 +15,10 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 const flagEntrant = (code: string): Entrant => ({ id: 'f-' + code, name: countryName(code), type: 'flag', code });
 
+const CODES = 'us gb fr de it es br ar mx ca jp kr cn in au za ng eg tr sa se no nl be pt gr pl ua ch ie nz cl'.split(' ');
+
 function defaultProject(): Project {
-  const codes = 'us gb fr de it es br ar mx ca jp kr cn in au za ng eg tr sa se no nl be pt gr pl ua ch ie nz cl'.split(' ');
+  const codes = CODES;
   return {
     name: 'My Marble Race',
     mode: 'slots',
@@ -50,7 +52,14 @@ let mouse: [number, number] = [0, 0];
 let tab: 'props' | 'marbles' | 'standings' = 'props';
 let race: Race | SlotGame | null = null;
 let paused = false;
-let speed = 1;
+
+// What the play screen remembers between visits; the editor keeps everything else in the project.
+type Game = 'slots' | 'race' | 'mine';
+const UI = 'marble-chaos:ui';
+const ui: { game: Game; speed: number } = { game: 'slots', speed: 1, ...JSON.parse(localStorage.getItem(UI) ?? '{}') };
+const saveUi = () => localStorage.setItem(UI, JSON.stringify(ui));
+let speed = [0.5, 1, 2, 4].includes(ui.speed) ? ui.speed : 1;
+let editing = false; // false: the play screen, with the editor and project housekeeping out of sight
 const cam: Cam = { x: 640, y: 360, z: 0.5 };
 
 // Small screens swap the side panels for a single sheet; touch gets larger grab handles.
@@ -64,8 +73,14 @@ const sel = (): Shape | null => stage().shapes.find((s) => s.id === selId) ?? nu
 // ---------- undo ----------
 const undo: string[] = [], redo: string[] = [];
 let last = JSON.stringify(project);
+let lastStages = JSON.stringify(project.stages);
 
-function commit() {
+/** Record a change. `stock` marks the stages as a built-in set again rather than the user's own work. */
+function commit(stock = false) {
+  const st = JSON.stringify(project.stages);
+  if (stock) project.custom = false;
+  else if (st !== lastStages) project.custom = true;
+  lastStages = st;
   const s = JSON.stringify(project);
   if (s === last) return;
   undo.push(last);
@@ -82,6 +97,7 @@ function commit() {
 function restore(s: string) {
   project = JSON.parse(s);
   last = s;
+  lastStages = JSON.stringify(project.stages);
   stageIdx = Math.min(stageIdx, project.stages.length - 1);
   selId = null;
   renderAll();
@@ -234,28 +250,133 @@ function standingsHtml() {
       <p class="hint" style="margin:0 0 8px">${s.sim.live} falling · ${s.lost} lost</p>
       ${live.map((x) => row(x.l, x.c)).join('')}${out}`;
   }
-  const r = race, ent = project.entrants;
+  const r = race, ent = r.p.entrants;
   const row = (e: number, right: string, gone = false) =>
     `<div class="ent ${gone ? 'gone' : ''}">${thumb(ent[e])}<span class="n">${esc(ent[e].name)}</span><span class="pl">${right}</span></div>`;
   if (r.phase === 'done') return `<h4>Final standings</h4>` + r.results.map((x) => row(x.e, x.place + '.', x.place > 1)).join('');
   const inRace = r.counts.map((c, e) => ({ c, e })).filter((x) => x.c > 0).sort((a, b) => b.c - a.c);
   return `<h4>Round ${r.round} · ${esc(r.stage.name)}</h4>
     <p class="hint" style="margin:0 0 8px">${r.sim.live} racing · ${r.safes} safe · ${r.outs}/${r.quota} eliminated</p>
-    ${inRace.map((x) => row(x.e, project.perEntrant > 1 ? '×' + x.c : '')).join('')}
+    ${inRace.map((x) => row(x.e, r.p.perEntrant > 1 ? '×' + x.c : '')).join('')}
     ${[...r.placed].reverse().map((x) => row(x.e, x.place + '.', true)).join('')}`;
 }
 
-/** Floating canvas buttons standing in for keyboard shortcuts and double-click. */
+/** Floating canvas buttons: the game controls on the play screen, stand-ins for keys and double-click in the editor. */
+let fabHtml = '';
 function renderFab() {
-  $('#fab').innerHTML = race
-    ? document.body.classList.contains('full')
-      ? `<button data-act="pause">Pause</button><button data-act="full">Exit full screen</button><button data-act="stop">Stop</button>`
-      : ''
-    : tool === 'poly'
-      ? `<button data-act="poly-done" class="primary">Close shape</button><button data-act="poly-cancel">Cancel</button>`
-      : sel()
-        ? `<button data-act="props" class="mob">Edit</button><button data-act="dup" class="mob">Duplicate</button><button data-act="del" class="mob">Delete</button>`
-        : '';
+  const fab = $('#fab');
+  const done = race?.phase === 'done';
+  let h = '';
+  if (race && !editing)
+    h = done
+      ? `<button data-act="again" class="primary">↻ Play again</button><button data-act="stop">🏠 Home</button>`
+      : `<button data-act="pause" title="Pause">${paused ? '▶' : '⏸'}</button><button data-act="faster" title="Speed">${speed}×</button>${
+          'requestFullscreen' in document.documentElement ? `<button data-act="screen" title="Full screen">⛶</button>` : ''
+        }<button data-act="stop" title="Home">🏠</button>`;
+  else if (race) h = document.body.classList.contains('full') ? `<button data-act="pause">Pause</button><button data-act="full">Exit full screen</button><button data-act="stop">Stop</button>` : '';
+  else if (!editing) h = '';
+  else if (tool === 'poly') h = `<button data-act="poly-done" class="primary">Close shape</button><button data-act="poly-cancel">Cancel</button>`;
+  else if (sel()) h = `<button data-act="props" class="mob">Edit</button><button data-act="dup" class="mob">Duplicate</button><button data-act="del" class="mob">Delete</button>`;
+  fab.classList.toggle('end', !!done && !editing);
+  if (h !== fabHtml) fab.innerHTML = fabHtml = h;
+}
+
+// ---------- play screen ----------
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+function renderHome() {
+  const home = $('#home');
+  home.hidden = editing || !!race;
+  if (home.hidden) return;
+  const card = (g: Game, scene: string, title: string, blurb: string) =>
+    `<button class="game" data-act="play" data-g="${g}" style="background-image:url(${sceneUrl(scene)})"><b>${title}</b><span>${blurb}</span><i>▶ Play</i></button>`;
+  home.innerHTML = `
+    <h1>${[...'Marble'].map((c, i) => `<span style="color:hsl(${i * 52 + 8} 95% 62%)">${c}</span>`).join('')} <em>Chaos</em></h1>
+    <div class="games">
+      ${card('slots', 'scene-candy', 'Letter Drop', 'Which letter catches the fewest marbles? That one is out!')}
+      ${card('race', 'scene-lavacave', 'Marble Race', 'Dodge lava, sharks and black holes. Last one rolling wins!')}
+      ${project.custom ? card('mine', 'scene-toys', 'My Levels', 'Play the levels you built.') : ''}
+    </div>
+    <div class="row"><button data-act="tune" class="big">🔮 Marbles</button><button data-act="edit" class="big">🛠 Build levels</button></div>`;
+}
+
+/** What a tap on a game card plays: a fresh copy of the built-in levels, or the project's own stages. */
+function playProject(): Project {
+  const own = ui.game === 'mine' && project.custom;
+  const mode = own ? project.mode ?? 'race' : ui.game === 'race' ? 'race' : 'slots';
+  return {
+    ...project,
+    mode,
+    loop: own ? project.loop : true,
+    stages: own ? project.stages : (mode === 'slots' ? SLOT_LEVELS : RACE_LEVELS).map((k) => TEMPLATES[k]()),
+    // never turn a player away over settings: fall back to the stock marbles and letters
+    entrants: project.entrants.length >= 2 ? project.entrants : CODES.map(flagEntrant),
+    slotLabels: parseLabels(project.slotLabels).length >= 2 ? project.slotLabels : ALPHABET,
+  };
+}
+
+type Look = 'flag' | 'color' | 'marble' | 'mine';
+const LOOKS: Record<Exclude<Look, 'mine'>, () => Entrant[]> = {
+  flag: () => CODES.map(flagEntrant),
+  color: () => PALETTE.slice(0, 32).map(([name, color]) => ({ id: uid(), name, type: 'color', color })),
+  marble: () => MARBLES.map(([tex, name]) => ({ id: uid(), name, type: 'marble', tex })),
+};
+/** A set of one kind counts as that look; logos and mixtures are the player's own. */
+const lookOf = (es: Entrant[]): Look => (es.length && es[0].type !== 'image' && es.every((e) => e.type === es[0].type) ? (es[0].type as Look) : 'mine');
+
+const marbleCount = () => (ui.game === 'slots' || (ui.game === 'mine' && project.mode === 'slots') ? project.slotBalls ?? SLOT_BALLS : project.perEntrant * project.entrants.length);
+const marbleSize = () => (ui.game === 'slots' || (ui.game === 'mine' && project.mode === 'slots') ? project.slotRadius ?? SLOT_RADIUS : project.radius);
+
+function setCount(n: number) {
+  project.slotBalls = n;
+  project.perEntrant = clamp(Math.round(n / Math.max(1, project.entrants.length)), 1, 200);
+}
+
+/** Swap what the marbles look like, keeping the set being replaced so it comes back when picked again. */
+function setLook(k: Look) {
+  const cur = lookOf(project.entrants), n = project.perEntrant * project.entrants.length;
+  if (k === cur) return;
+  const looks = (project.looks ??= {});
+  if (project.entrants.length) looks[cur] = project.entrants;
+  project.entrants = looks[k] ?? (k === 'mine' ? [] : LOOKS[k]());
+  delete looks[k];
+  project.perEntrant = clamp(Math.round(n / Math.max(1, project.entrants.length)), 1, 200);
+}
+
+/** The play screen's marble settings: a few big choices and sliders instead of the editor's full panel. */
+function tuneDialog() {
+  const dlg = $<HTMLDialogElement>('#dlg'), cur = lookOf(project.entrants);
+  const look = (k: Look, label: string, es: Entrant[]) =>
+    `<button data-act="look" data-k="${k}" class="${k === cur ? 'sel' : ''}"><span class="thumbs">${es.slice(0, 3).map(thumb).join('')}</span>${label}</button>`;
+  const slide = (k: string, label: string, lo: string, hi: string, v: number, min: number, max: number, stepV: number, show = '') =>
+    `<label class="slide"><span>${label}<b id="tv-${k}">${show}</b></span><span class="ends">${lo}<input type="range" data-tune="${k}" min="${min}" max="${max}" step="${stepV}" value="${v}">${hi}</span></label>`;
+  const own = cur === 'mine' ? project.entrants : project.looks?.mine;
+  dlg.className = 'tune';
+  dlg.innerHTML = `<h3>🔮 Marbles</h3>
+    <h5>What do they look like?</h5>
+    <div class="choices">${look('flag', 'Flags', cur === 'flag' ? project.entrants : project.looks?.flag ?? LOOKS.flag())}${look('color', 'Colours', LOOKS.color())}${look('marble', 'Fancy', LOOKS.marble())}${own?.length ? look('mine', 'Mine', own) : ''}</div>
+    ${slide('count', 'How many?', 'Few', 'Tons', marbleCount(), 100, 3000, 50, ' ' + marbleCount())}
+    ${slide('size', 'How big?', 'Tiny', 'Big', marbleSize(), 4, 14, 1)}
+    ${slide('bounce', 'How bouncy?', 'Thud', 'Boing', project.marbleBounce, 0, 0.9, 0.1)}
+    <h5>How fast?</h5>
+    <div class="choices">${([[0.5, '🐢 Slow'], [1, '🚶 Normal'], [2, '🐇 Fast'], [4, '🚀 Zoom']] as const).map(([v, l]) => `<button data-act="pace" data-v="${v}" class="${v === speed ? 'sel' : ''}">${l}</button>`).join('')}</div>
+    <div class="row end"><button data-act="tune-reset" class="big">Start over</button><button data-act="c-cancel" class="primary big">Done</button></div>`;
+  if (!dlg.open) dlg.showModal();
+}
+
+function setSpeed(v: number) {
+  speed = ui.speed = v;
+  $<HTMLSelectElement>('#speed').value = String(v);
+  saveUi();
+}
+
+function setEditing(on: boolean) {
+  if (race) stop();
+  editing = on;
+  document.body.classList.toggle('play', !on);
+  sheet('');
+  renderAll();
+  fit();
 }
 
 function renderRight() {
@@ -267,6 +388,7 @@ function renderRight() {
 }
 
 function renderAll() {
+  renderHome();
   ($('#pname') as HTMLInputElement).value = project.name;
   $<HTMLSelectElement>('#mode').value = project.mode ?? 'race';
   renderLeft();
@@ -379,6 +501,7 @@ function reorder(front: boolean) {
 function countryDialog() {
   const have = new Set(project.entrants.filter((e) => e.type === 'flag').map((e) => e.code));
   const dlg = $<HTMLDialogElement>('#dlg');
+  dlg.className = '';
   dlg.innerHTML = `<h3>Countries</h3>
     <div class="row"><input id="csearch" placeholder="Search…" style="flex:1"><button data-act="c-all">Select shown</button><button data-act="c-none">Clear shown</button></div>
     <div class="cgrid">${COUNTRIES.map(
@@ -432,37 +555,38 @@ function loadLevels(names: string[], question: string) {
   project.stages = names.map((t) => TEMPLATES[t]());
   stageIdx = 0;
   selId = null;
-  commit();
+  commit(true);
   renderAll();
   fit();
 }
 
 // ---------- running ----------
 async function start(single: boolean) {
-  const slots = project.mode === 'slots';
-  if (slots ? !project.entrants.length || parseLabels(project.slotLabels).length < 2 : project.entrants.length < 2) {
+  const p = editing ? project : playProject();
+  const slots = p.mode === 'slots';
+  if (slots ? !p.entrants.length || parseLabels(p.slotLabels).length < 2 : p.entrants.length < 2) {
     tab = 'marbles';
     renderRight();
     return alert(slots ? 'Slots mode needs at least two slots and one kind of marble.' : 'Add at least two entrants first.');
   }
   if (!$('#loading').hidden) return; // already starting
   // Have every backdrop, material and marble face in hand before the first marble drops.
-  const single1 = single ? [stage()] : project.stages;
+  const single1 = single ? [stage()] : p.stages;
   $('#loading').hidden = false;
-  await Promise.all([initPhysics(), Promise.race([preload(single1, project), new Promise((r) => setTimeout(r, 15000))])]);
+  await Promise.all([initPhysics(), Promise.race([preload(single1, p), new Promise((r) => setTimeout(r, 15000))])]);
   $('#loading').hidden = true;
   tool = 'select';
   poly = [];
-  race = slots ? new SlotGame(project, single ? stageIdx : 0, single) : new Race(project, single ? stageIdx : 0, single);
+  race = slots ? new SlotGame(p, single ? stageIdx : 0, single) : new Race(p, single ? stageIdx : 0, single);
   paused = false;
   acc = 0;
   tab = 'standings';
-  if (compact.matches) sheet(innerHeight > innerWidth ? 'right' : '');
+  if (editing && compact.matches) sheet(innerHeight > innerWidth ? 'right' : '');
   renderAll();
 }
 
 function stop() {
-  setFull(false);
+  if (editing) setFull(false);
   race = null;
   paused = false;
   tab = 'props';
@@ -545,6 +669,38 @@ const actions: Record<string, (el: HTMLElement) => void> = {
   test: () => start(true),
   pause: () => (paused = !paused),
   stop,
+  play: (el) => {
+    ui.game = el.dataset.g as Game;
+    saveUi();
+    start(false);
+  },
+  again: () => {
+    race = null;
+    start(false);
+  },
+  faster: () => setSpeed(speed >= 4 ? 1 : speed * 2),
+  screen: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {})),
+  edit: () => setEditing(true),
+  home: () => setEditing(false),
+  tune: tuneDialog,
+  look: (el) => {
+    setLook(el.dataset.k as Look);
+    commit();
+    tuneDialog();
+  },
+  pace: (el) => {
+    setSpeed(+el.dataset.v!);
+    tuneDialog();
+  },
+  'tune-reset': () => {
+    const looks = project.looks ?? {};
+    if (lookOf(project.entrants) === 'mine' && project.entrants.length) looks.mine = project.entrants;
+    Object.assign(project, { entrants: CODES.map(flagEntrant), looks, perEntrant: RACE_PER_ENTRANT, radius: RACE_RADIUS, slotBalls: SLOT_BALLS, slotRadius: SLOT_RADIUS, marbleBounce: 0.4 });
+    delete looks.flag;
+    setSpeed(1);
+    commit();
+    tuneDialog();
+  },
   rec: toggleRec,
   full: async () => {
     if (!race) await start(false);
@@ -560,7 +716,7 @@ const actions: Record<string, (el: HTMLElement) => void> = {
     project = defaultProject();
     stageIdx = 0;
     selId = null;
-    commit();
+    commit(true);
     renderAll();
     fit();
   },
@@ -710,12 +866,17 @@ function bound(el: HTMLInputElement): Record<string, unknown> | null {
 }
 document.addEventListener('input', (e) => {
   const el = e.target as HTMLInputElement, o = bound(el);
+  const tune = el.dataset.tune, v = +el.value;
+  if (tune === 'count') setCount(v), ($('#tv-count').textContent = ' ' + v);
+  if (tune === 'size') project.radius = project.slotRadius = v;
+  if (tune === 'bounce') project.marbleBounce = v;
   if (!o) return;
   o[el.dataset.k!] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? parseFloat(el.value) || 0 : el.value;
 });
 document.addEventListener('change', (e) => {
   const el = e.target as HTMLInputElement;
-  if (el.id === 'speed') speed = +el.value;
+  if (el.id === 'speed') setSpeed(+el.value);
+  if (el.dataset.tune) return commit();
   if (!bound(el)) return;
   const s = sel();
   if (s) {
@@ -790,7 +951,7 @@ function endDrag() {
 }
 
 cv.addEventListener('pointerdown', (e) => {
-  if (race) return;
+  if (race || !editing) return;
   cv.setPointerCapture(e.pointerId);
   touches.set(e.pointerId, [e.offsetX, e.offsetY]);
   if (touches.size === 2) {
@@ -875,7 +1036,7 @@ cv.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
-    if (race) return;
+    if (race || !editing) return;
     const [wx, wy] = world(e.offsetX, e.offsetY);
     cam.z = Math.max(0.05, Math.min(8, cam.z * Math.exp(-e.deltaY * 0.0015)));
     cam.x = wx - (e.offsetX - cw / 2) / cam.z;
@@ -890,9 +1051,10 @@ window.addEventListener('keydown', (e) => {
   if (race) {
     if (k === ' ') (paused = !paused), e.preventDefault();
     if (k === 'escape') document.body.classList.contains('full') ? setFull(false) : stop();
-    if (k === 'f') setFull(!document.body.classList.contains('full'));
+    if (k === 'f') editing ? setFull(!document.body.classList.contains('full')) : actions.screen(document.body);
     return;
   }
+  if (!editing) return;
   const s = sel();
   if (mod && k === 'z') return e.preventDefault(), e.shiftKey ? step(redo, undo) : step(undo, redo);
   if (mod && k === 'y') return e.preventDefault(), step(redo, undo);
@@ -934,20 +1096,21 @@ function frame(now: number) {
     const t1 = performance.now();
     if (race instanceof SlotGame) {
       const slots = race.phase === 'done' && !race.single ? undefined : { labels: race.labels, counts: race.counts, loser: race.loser };
-      drawScene(g, cw, ch, raceCam, race.stage, project, { sim: race.sim, fx: race.fx, clock: race.clock, slots });
+      drawScene(g, cw, ch, raceCam, race.stage, race.p, { sim: race.sim, fx: race.fx, clock: race.clock, slots });
       drawSlotHud(g, cw, ch, race);
     } else {
-      drawScene(g, cw, ch, raceCam, race.stage, project, { sim: race.sim, fx: race.fx, clock: race.clock });
-      drawHud(g, cw, ch, race, project);
+      drawScene(g, cw, ch, raceCam, race.stage, race.p, { sim: race.sim, fx: race.fx, clock: race.clock });
+      drawHud(g, cw, ch, race, race.p);
     }
     perf.draw += performance.now() - t1;
     perf.frames++;
     if (race.dirty && now - lastBoard > 200) {
       race.dirty = false;
       lastBoard = now;
-      if (tab === 'standings') renderRight();
+      if (editing && tab === 'standings') renderRight();
     }
-  } else {
+    renderFab(); // the buttons follow pause, speed and the end of the game
+  } else if (editing) {
     // In slots mode show where the strip will sit, so stages can be designed around it.
     const labels = project.mode === 'slots' ? parseLabels(project.slotLabels) : null;
     const slots = labels ? { labels, counts: labels.map(() => 0), loser: -1 } : undefined;
@@ -959,6 +1122,7 @@ function frame(now: number) {
 if (!('MediaRecorder' in window) || !cv.captureStream) $('#rec').hidden = true;
 compact.addEventListener('change', () => sheet(''));
 window.addEventListener('resize', () => race || fit()); // rotation, split view
+$<HTMLSelectElement>('#speed').value = String(speed);
 renderAll();
 fit();
 requestAnimationFrame(frame);

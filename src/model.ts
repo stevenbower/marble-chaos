@@ -81,6 +81,8 @@ export interface Project {
   slotRadius?: number; // marble radius in slots mode, where a crowd of small marbles reads better
   seed: number;
   seedFixed?: boolean; // use `seed` so runs repeat exactly; otherwise every level draws a fresh seed from the clock
+  custom?: boolean; // the stages have been edited, so the play screen offers them alongside the built-in games
+  looks?: Record<string, Entrant[]>; // entrant sets put aside when the play screen swaps in another look
 }
 
 /** Marble race defaults: about 1500 small marbles between the stock entrants. */

@@ -84,10 +84,53 @@ input { -webkit-user-select: text; user-select: text; }
 .th.slot { background: #3a3a46; color: #fff; font: 700 10px/20px system-ui; text-align: center; }
 
 /* Full screen while a race runs: nothing but the stage and a few faint controls. */
-body.full #top, body.full aside { display: none !important; }
-body.full #app { grid-template: 1fr / 1fr; grid-template-areas: 'main'; }
+body.full #top, body.full aside, body.play #top, body.play aside { display: none !important; }
+body.full #app, body.play #app { grid-template: 1fr / 1fr; grid-template-areas: 'main'; }
 body.full #fab { left: auto; right: max(10px, env(safe-area-inset-right)); transform: none; opacity: 0.45; }
 body.full #fab:hover, body.full #fab:active { opacity: 1; }
 
 #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #000c; color: #ffd23f; font: italic 28px Impact, sans-serif; letter-spacing: .04em; z-index: 3; }
 #loading[hidden] { display: none; }
+
+/* ---------- play screen: big, round and few ---------- */
+#home, dialog.tune, body.play #fab { font-family: ui-rounded, 'Arial Rounded MT Bold', 'Varela Round', 'Comic Sans MS', system-ui, sans-serif; }
+#home { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: clamp(10px, 3vh, 28px); overflow-y: auto;
+  padding: calc(16px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: radial-gradient(circle at 15% 20%, #5b2a86 0, transparent 45%), radial-gradient(circle at 85% 80%, #0e6ba8 0, transparent 50%), #1a1440; }
+#home[hidden] { display: none; }
+#home h1 { margin: 0; font-size: clamp(34px, 9vmin, 84px); line-height: 1; letter-spacing: .02em; text-align: center; text-shadow: 0 4px 0 #0007; }
+#home h1 em { color: #fff; font-style: italic; }
+.games { display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(10px, 2.5vmin, 24px); width: 100%; }
+.game { position: relative; flex: 1 1 240px; max-width: 420px; aspect-ratio: 4 / 3; max-height: 46vh; padding: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; text-align: left; white-space: normal;
+  border: 4px solid #fff; border-radius: 26px; background: #333 center / cover; color: #fff; box-shadow: 0 8px 0 #0006; transition: transform .12s; }
+.game:hover { background-color: #333; transform: translateY(-3px) scale(1.02); }
+.game:active { transform: translateY(3px); box-shadow: 0 3px 0 #0006; }
+.game b { font-size: clamp(22px, 4.5vmin, 36px); padding: 40px 16px 0; background: linear-gradient(transparent, #000c); text-shadow: 0 2px 4px #000; }
+.game span { font-size: clamp(13px, 2vmin, 17px); padding: 2px 16px 14px; background: #000c; }
+.game i { position: absolute; top: 12px; right: 12px; font-style: normal; font-weight: 700; font-size: clamp(15px, 2.6vmin, 22px); padding: 6px 16px; border-radius: 99px; background: #2fbf4a; box-shadow: 0 3px 0 #0006; }
+button.big { font-size: clamp(15px, 2.4vmin, 20px); padding: 10px 20px; border-radius: 99px; border: 2px solid #fff8; background: #ffffff22; color: #fff; }
+button.big:hover { background: #ffffff3a; }
+button.big.primary { background: #2fbf4a; }
+#home .row { justify-content: center; gap: 12px; margin: 0; }
+
+/* top centre is the one spot neither the HUD nor the letter strip uses */
+body.play #fab { bottom: auto; top: calc(8px + env(safe-area-inset-top)); opacity: .6; }
+/* a phone held upright has no room up there, but spare space under the stage */
+@media (max-width: 600px) { body.play #fab { top: auto; bottom: calc(10px + env(safe-area-inset-bottom)); } }
+body.play #fab:hover, body.play #fab:active { opacity: 1; }
+body.play #fab button { min-width: 44px; height: 44px; padding: 0 10px; border-radius: 22px; font-size: 18px; font-weight: 700; border: 2px solid #fff6; }
+body.play #fab.end { top: auto; bottom: 9%; opacity: 1; gap: 14px; }
+body.play #fab.end button { height: 60px; padding: 0 28px; border-radius: 30px; font-size: clamp(18px, 3vmin, 26px); color: #fff; }
+
+dialog.tune { width: min(520px, 94vw); border-radius: 24px; border: 3px solid #fff; background: #2a2360; font-size: 16px; max-height: 94dvh; }
+dialog.tune h3 { font-size: 26px; }
+dialog.tune h5, .slide > span:first-child { margin: 14px 0 6px; font-size: 16px; font-weight: 700; color: #ffd23f; display: block; }
+.slide b { color: #fff; }
+.slide .ends { display: flex; align-items: center; gap: 10px; color: #c9c4ee; font-size: 14px; }
+.slide input { flex: 1; height: 34px; padding: 0; border: 0; background: none; accent-color: #ffd23f; }
+.choices { display: flex; gap: 8px; flex-wrap: wrap; }
+.choices button { flex: 1 1 0; min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 15px; border-radius: 16px; border: 2px solid #fff4; background: #ffffff18; color: #fff; }
+.choices button.sel { outline: 0; border-color: #ffd23f; background: #ffd23f33; }
+.thumbs { display: flex; }
+.thumbs .th { width: 28px; height: 28px; margin: 0 -3px; }
+dialog.tune .row.end { margin-top: 18px; align-items: center; }
